@@ -1,5 +1,5 @@
 import archs.common as common
-from ldm.ddpm import DDPM
+from ldm.rectified_flow import RectifiedFlow  # Changed from ddpm import
 import archs.attention as attention
 import torch
 import torch.nn as nn
@@ -501,9 +501,10 @@ class ResMLP(nn.Module):
         return res
 
 
-class denoise(nn.Module):
+class VelocityPredictor(nn.Module):
+    """Updated from 'denoise' to predict velocity instead of noise for Rectified Flow"""
     def __init__(self, n_feats=64, n_denoise_res=5, timesteps=5):
-        super(denoise, self).__init__()
+        super(VelocityPredictor, self).__init__()
         self.max_period = timesteps * 10
         n_featsx4 = 4 * n_feats
         resmlp = [
@@ -515,12 +516,21 @@ class denoise(nn.Module):
         self.resmlp = nn.Sequential(*resmlp)
 
     def forward(self, x, t, c):
+        """Predict velocity: v = x_1 - x_0 (target_noise - clean_data)
+        
+        Args:
+            x: Current interpolated state x_t
+            t: Time step
+            c: Conditioning features
+        Returns:
+            velocity: Predicted velocity field
+        """
         t = t.float()
         t = t / self.max_period
         t = t.view(-1, 1)
         c = torch.cat([c, t, x], dim=1)
-        fea = self.resmlp(c)
-        return fea
+        velocity = self.resmlp(c)
+        return velocity
 
 @ARCH_REGISTRY.register()
 class RetiDiffS2(nn.Module):
@@ -557,13 +567,25 @@ class RetiDiffS2(nn.Module):
         self.img_condition = PE(input_channels=48, n_feats=64, n_encoder_res=n_encoder_res)
         self.rex_condition = RPE(input_channels=64, n_feats=64, n_encoder_res=n_encoder_res)
 
-        self.img_denoise = denoise(n_feats=64, n_denoise_res=n_denoise_res, timesteps=timesteps)
-        self.rex_denoise = denoise(n_feats=64, n_denoise_res=n_denoise_res, timesteps=timesteps)
+        # Updated to use VelocityPredictor instead of denoise
+        self.img_denoise = VelocityPredictor(n_feats=64, n_denoise_res=n_denoise_res, timesteps=timesteps)
+        self.rex_denoise = VelocityPredictor(n_feats=64, n_denoise_res=n_denoise_res, timesteps=timesteps)
 
-        self.img_diffusion = DDPM(denoise=self.img_denoise, condition=self.img_condition, n_feats=64, linear_start=linear_start,
-                              linear_end=linear_end, timesteps=timesteps)
-        self.rex_diffusion = DDPM(denoise=self.rex_denoise, condition=self.rex_condition, n_feats=64, linear_start=linear_start,
-                                  linear_end=linear_end, timesteps=timesteps)
+        # Replace DDPM with RectifiedFlow
+        self.img_diffusion = RectifiedFlow(
+            denoise=self.img_denoise, 
+            condition=self.img_condition, 
+            n_feats=64, 
+            timesteps=timesteps,
+            parameterization="v"  # Velocity prediction
+        )
+        self.rex_diffusion = RectifiedFlow(
+            denoise=self.rex_denoise, 
+            condition=self.rex_condition, 
+            n_feats=64, 
+            timesteps=timesteps,
+            parameterization="v"  # Velocity prediction
+        )
 
     def forward(self, img, retinex, IPRS1=None):
 
@@ -572,6 +594,7 @@ class RetiDiffS2(nn.Module):
             IPRS1_rex = IPRS1[0]
             IPRS1_img = IPRS1[1]
 
+            # RectifiedFlow returns (x_t, [pred_list]) for training
             IPRS2_rex, pred_IPR_list_rex = self.rex_diffusion(retinex, IPRS1_rex)
             IPRS2_img, pred_IPR_list_img = self.img_diffusion(img, IPRS1_img)
 
@@ -582,10 +605,10 @@ class RetiDiffS2(nn.Module):
             return sr, pred_IPR_list, rex
 
         else:
+            # For inference, RectifiedFlow returns sampled features
             IPRS2_rex = self.rex_diffusion(retinex)
             IPRS2_img = self.img_diffusion(img)
 
             sr, _ = self.G(img, IPRS2_rex, IPRS2_img)
 
             return sr
-

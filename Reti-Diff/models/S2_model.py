@@ -16,6 +16,8 @@ from basicsr.utils import get_root_logger
 from basicsr.losses import build_loss
 import os
 
+from losses.lp_loss import LatentPerceptualLoss, LPLIntegrator
+
 class Mixing_Augment:
     def __init__(self, mixup_beta, use_identity, device):
         self.dist = torch.distributions.beta.Beta(torch.tensor([mixup_beta]), torch.tensor([mixup_beta]))
@@ -109,10 +111,12 @@ def aux_load_initialize(model, decom_model_path):
 @MODEL_REGISTRY.register()
 class RetiDiff_S2Model(SRModel):
     """
-    It is trained without GAN losses.
-    It mainly performs:
-    1. randomly synthesize LQ images in GPU tensors
-    2. optimize the networks with GAN training.
+    Updated RetiDiff Stage 2 model using Rectified Flow instead of DDPM.
+    
+    Key improvements:
+    1. Faster sampling with rectified flow (1-4 steps vs 100+ DDPM steps)
+    2. More stable training with velocity prediction
+    3. Simpler mathematics with straight-line paths
     """
 
     def __init__(self, opt):
@@ -158,6 +162,12 @@ class RetiDiff_S2Model(SRModel):
         self.Decom_h = aux_load_initialize(self.Decom_h, opt['pretrain_decomnet_high'])
         self.Decom_h.eval()
 
+        # Add LPL option parsing
+        if self.is_train:
+            self.use_lpl = opt.get('use_lpl', False)
+            if self.use_lpl:
+                print("----------------------- LPL enabled -----------------------")
+
     def setup_optimizers(self):
         train_opt = self.opt['train']
         optim_params = []
@@ -172,6 +182,7 @@ class RetiDiff_S2Model(SRModel):
         self.optimizer_g = self.get_optimizer(optim_type, optim_params, **train_opt['optim_g'])
         self.optimizers.append(self.optimizer_g)
 
+        # Parameters for rectified flow velocity predictors
         parms=[]
         for k,v in self.net_g.named_parameters():
             if "rex_denoise" in k or "rex_condition" in k or "img_denoise" in k or "img_condition" in k or"denoise" in k or "condition" in k:
@@ -269,6 +280,29 @@ class RetiDiff_S2Model(SRModel):
         else:
             self.cri_recon = None
 
+        # Add velocity loss for rectified flow training
+        if train_opt.get('velocity_opt'):
+            self.cri_velocity = build_loss(train_opt['velocity_opt']).to(self.device)
+        else:
+            self.cri_velocity = nn.MSELoss()  # Default MSE for velocity prediction
+
+        # Add LPL loss initialization
+        if hasattr(self, 'use_lpl') and self.use_lpl:
+            train_opt = self.opt['train']
+            lpl_opt = train_opt.get('lpl_opt', {})
+            
+            self.cri_lpl = LatentPerceptualLoss(
+                loss_weight=lpl_opt.get('loss_weight', 0.1),
+                snr_threshold=lpl_opt.get('snr_threshold', 0.3),
+                target_layers=lpl_opt.get('target_layers', None),  # Use defaults
+                apply_cross_norm=lpl_opt.get('apply_cross_norm', True),
+                apply_outlier_detection=lpl_opt.get('apply_outlier_detection', True)
+            ).to(self.device)
+            
+            print(f"LPL initialized with weight: {lpl_opt.get('loss_weight', 0.1)}")
+        else:
+            self.cri_lpl = None      
+
         if self.cri_pix is None and self.cri_perceptual is None and self.cri_recon is None:
             raise ValueError('All losses are None.')
 
@@ -329,6 +363,20 @@ class RetiDiff_S2Model(SRModel):
             _, _, h, w = self.output.size()
             self.output = self.output[:, :, 0:h - mod_pad_h * scale, 0:w - mod_pad_w * scale]
 
+    def compute_velocity_loss(self, pred_features, target_features, clean_features):
+        """Compute velocity loss for rectified flow training
+        
+        Velocity = target - clean (noise - original_features)
+        Loss = ||predicted_velocity - true_velocity||^2
+        """
+        # True velocity: from clean features to target features
+        true_velocity = target_features - clean_features
+        
+        # Predicted velocity should match this
+        velocity_loss = self.cri_velocity(pred_features, true_velocity)
+        
+        return velocity_loss
+
     def optimize_parameters(self, current_iter):
         with torch.no_grad():
             self.r_gt, self.i_gt = self.Decom_h(self.gt)
@@ -352,9 +400,20 @@ class RetiDiff_S2Model(SRModel):
         _, S1_IPR_img = self.model_Es1_img(self.lq, self.gt)
 
         if current_iter < self.encoder_iter:
+            # Phase 1: Train only velocity predictors (rectified flow encoders)
             self.optimizer_e.zero_grad()
-            _, pred_IPR_list_rex = self.net_g.module.rex_diffusion(self.retinex_lq, S1_IPR_rex[0])
-            _, pred_IPR_list_img = self.net_g.module.img_diffusion(self.lq, S1_IPR_img[0])
+            
+            # Handle distributed vs single GPU
+            if self.opt['dist']:
+                rex_diffusion = self.net_g.module.rex_diffusion
+                img_diffusion = self.net_g.module.img_diffusion
+            else:
+                rex_diffusion = self.net_g.rex_diffusion
+                img_diffusion = self.net_g.img_diffusion
+            
+            # Get rectified flow training with velocity prediction
+            _, pred_IPR_list_rex = rex_diffusion(self.retinex_lq, S1_IPR_rex[0])
+            _, pred_IPR_list_img = img_diffusion(self.lq, S1_IPR_img[0])
 
             i_rex = len(pred_IPR_list_rex) - 1
             i_img = len(pred_IPR_list_img) - 1
@@ -362,9 +421,22 @@ class RetiDiff_S2Model(SRModel):
             S2_IPR_rex = [pred_IPR_list_rex[i_rex]]
             S2_IPR_img = [pred_IPR_list_img[i_img]]
 
+            # Knowledge distillation loss (same as before)
             l_kd_r, l_abs_r = self.cri_kd(S1_IPR_rex, S2_IPR_rex)
             l_kd_i, l_abs_i = self.cri_kd(S1_IPR_img, S2_IPR_img)
 
+            # Add velocity losses for proper RF training
+            if hasattr(rex_diffusion, 'velocity_loss'):
+                l_velocity_rex = rex_diffusion.velocity_loss
+                l_total += l_velocity_rex * 0.1  # Weight the velocity loss
+                loss_dict['l_velocity_rex'] = l_velocity_rex
+                
+            if hasattr(img_diffusion, 'velocity_loss'):
+                l_velocity_img = img_diffusion.velocity_loss
+                l_total += l_velocity_img * 0.1  # Weight the velocity loss  
+                loss_dict['l_velocity_img'] = l_velocity_img
+
+            # Knowledge distillation losses
             l_total += l_abs_r
             l_total += l_abs_i
 
@@ -377,16 +449,19 @@ class RetiDiff_S2Model(SRModel):
             self.optimizer_e.step()
 
         else:
+            # Phase 2: Train full network with rectified flow
             self.optimizer_g.zero_grad()
             S1_IPR = [S1_IPR_rex[0], S1_IPR_img[0]]
             self.output, pred_IPR_list, output_rex = self.net_g(self.lq, self.retinex_lq, S1_IPR)
             output_decom_img = output_rex[0]
             output_decom_mat = output_rex[1]
 
+            # Main reconstruction loss
             l_pix = self.cri_pix(self.output, self.gt)
             l_total += l_pix
             loss_dict['l_pix'] = l_pix
 
+            # Decomposition consistency losses
             l_recon_in = self.cri_pix(output_decom_img, self.lq)
             l_total += l_recon_in
             loss_dict['l_recon_in'] = l_recon_in
@@ -395,7 +470,38 @@ class RetiDiff_S2Model(SRModel):
             l_total += l_recon_out
             loss_dict['l_recon_out'] = l_recon_out
 
+            # LPL Loss: Compare S1 (teacher) vs S2 (student) transformer features
+            if self.cri_lpl is not None:
+                # Get S1 teacher features (clean/reference)
+                with torch.no_grad():
+                    if self.opt['dist']:
+                        s1_transformer = self.net_g_S1.module.G
+                    else:
+                        s1_transformer = self.net_g_S1.G
+                        
+                    # S1 processing with teacher features
+                    s1_features = self.cri_lpl.extract_multi_scale_features(
+                        s1_transformer, self.lq, S1_IPR_rex[0], S1_IPR_img[0]
+                    )
+                
+                # Get S2 student features (predicted)
+                if self.opt['dist']:
+                    s2_transformer = self.net_g.module.G
+                else:
+                    s2_transformer = self.net_g.G
+                    
+                # S2 processing with rectified flow features
+                s2_features = self.cri_lpl.extract_multi_scale_features(
+                    s2_transformer, self.lq, pred_IPR_list[0][-1], pred_IPR_list[1][-1]
+                )
+                
+                # Compute LPL loss (with timestep for SNR thresholding)
+                # For phase 2, we consider it high quality (low timestep)
+                l_lpl = self.cri_lpl(s1_features, s2_features, timestep=0.1, max_timestep=1.0)
+                l_total += l_lpl
+                loss_dict['l_lpl'] = l_lpl
 
+            # Knowledge distillation with rectified flow features
             i_rex=len(pred_IPR_list[0])-1
             i_img=len(pred_IPR_list[1])-1
 
@@ -404,6 +510,25 @@ class RetiDiff_S2Model(SRModel):
 
             l_kd_r, l_abs_r = self.cri_kd(S1_IPR_rex, S2_IPR_rex)
             l_kd_i, l_abs_i = self.cri_kd(S1_IPR_img, S2_IPR_img)
+            
+            # Add velocity losses in phase 2 as well
+            if self.opt['dist']:
+                rex_diffusion = self.net_g.module.rex_diffusion
+                img_diffusion = self.net_g.module.img_diffusion
+            else:
+                rex_diffusion = self.net_g.rex_diffusion
+                img_diffusion = self.net_g.img_diffusion
+                
+            if hasattr(rex_diffusion, 'velocity_loss'):
+                l_velocity_rex = rex_diffusion.velocity_loss
+                l_total += l_velocity_rex * 0.05  # Lower weight in phase 2
+                loss_dict['l_velocity_rex'] = l_velocity_rex
+                
+            if hasattr(img_diffusion, 'velocity_loss'):
+                l_velocity_img = img_diffusion.velocity_loss
+                l_total += l_velocity_img * 0.05  # Lower weight in phase 2
+                loss_dict['l_velocity_img'] = l_velocity_img
+            
             l_total += l_abs_r
             l_total += l_abs_i
             loss_dict['r_l_kd_%d'%(i_rex)] = l_kd_r

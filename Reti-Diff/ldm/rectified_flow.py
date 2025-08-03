@@ -234,40 +234,74 @@ class RectifiedFlow(nn.Module):
         
         return loss.mean(), velocity_pred, velocity_true
 
-    def forward(self, img, x=None):
+    def forward(self, input_features, target_features=None):
         """Forward pass for training/inference
         
-        This mimics the interface of the original DDPM class
+        Args:
+            input_features: Input for conditioning network
+            target_features: Target features from S1 (for training only)
         """
         device = self.timesteps_array.device
-        b = img.shape[0]
+        b = input_features.shape[0]
         
-        if self.training:
-            # Training mode: return predicted and target velocities
+        if self.training and target_features is not None:
+            # Training mode: learn to generate target_features
             pred_deg_list = []
             
-            # Sample random time steps
+            # Get conditioning from input
+            c = self.condition(input_features)
+            
+            # Use target_features as x_0 (clean data)
+            x_start = target_features
+            
+            # Sample random time steps for velocity training
             t = torch.randint(0, self.num_timesteps, (b,), device=device, dtype=torch.long)
             
-            # Get conditioning
-            c = self.condition(img)
+            # Forward process: interpolate between clean and noise
+            x_t, x_end = self.q_sample(x_start=x_start, t=t, x_end=None)
             
-            # Forward process
-            x_t, x_end = self.q_sample(x_start=x, t=t, x_end=None)
-            
-            # Predict velocity
+            # Predict velocity (this is where learning happens)
             velocity_pred = self.model(x_t, t, c)
             
-            # For compatibility with existing training loop
-            pred_deg_list.append(x_t)
+            # Compute velocity loss internally (this trains the velocity predictor)
+            true_velocity = self.compute_velocity(x_start, x_end)
+            self.velocity_loss = F.mse_loss(velocity_pred, true_velocity)
             
-            return x_t, pred_deg_list
+            # Now generate features using a quick RF sampling for KD loss
+            # Start from noise and do a few steps to generate features
+            x_noise = torch.randn_like(x_start)
+            deg_prep = x_noise
+            
+            # Quick sampling (2-4 steps) to generate features
+            num_quick_steps = min(4, self.num_timesteps)
+            time_schedule = np.linspace(1.0, 0.0, num_quick_steps + 1)
+            
+            for i in range(num_quick_steps):
+                t_current = time_schedule[i]
+                t_next = time_schedule[i + 1]
+                
+                # Convert to tensor index
+                t_idx = int(t_current * (self.num_timesteps - 1))
+                t_tensor = torch.full((b,), t_idx, device=device, dtype=torch.long)
+                
+                # ODE step
+                velocity = self.model(deg_prep, t_tensor, c)
+                dt = t_next - t_current
+                deg_prep = deg_prep + dt * velocity
+                
+                pred_deg_list.append(deg_prep)
+            
+            # Fill remaining slots for compatibility
+            while len(pred_deg_list) < self.num_timesteps:
+                pred_deg_list.append(deg_prep)
+            
+            return deg_prep, pred_deg_list
             
         else:
-            # Inference mode: sample from noise
-            shape = (img.shape[0], self.channels * 4)  # Match original interface
+            # Inference mode: sample from noise to generate features
+            shape = (b, self.channels * 4)  # Match original interface 
             x_noisy = torch.randn(shape, device=device)
-            c = self.condition(img)
+            c = self.condition(input_features)
             
             # Use fast sampling (4 steps)
             num_steps = 4
