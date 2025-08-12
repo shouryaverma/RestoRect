@@ -4,16 +4,16 @@ scale: 1
 num_gpu: auto  # auto: can infer from your visible devices automatically. official: 4 GPUs
 manual_seed: 0
 
-pretrain_decomnet_low: pretrained_models/init_low.pth
-pretrain_decomnet_high: pretrained_models/init_high.pth
+pretrain_decomnet_high: /depot/natallah/data/shourya/Reti-Diff-main/pretrained_models/init_high.pth
+pretrain_decomnet_low: /depot/natallah/data/shourya/Reti-Diff-main/pretrained_models/init_low.pth
 
 # dataset and data loader settings
 datasets:
   train:
     name: TrainSet
     type: DeblurPairedDataset
-    dataroot_gt: # put your own path here
-    dataroot_lq: # put your own path here
+    dataroot_gt: /depot/natallah/data/shourya/Reti-Diff-main/datasets/LOL-v2/Real_captured/Train/Normal
+    dataroot_lq: /depot/natallah/data/shourya/Reti-Diff-main/datasets/LOL-v2/Real_captured/Train/Low
     geometric_augs: true
 
     dataset_type: ~
@@ -40,8 +40,8 @@ datasets:
     name: ValSet
     type: DeblurPairedDataset
     dataset_type: ~
-    dataroot_gt: /data/fcy/Datasets/LLIE/LOLv2/Synthetic/Test/high
-    dataroot_lq: /data/fcy/Datasets/LLIE/LOLv2/Synthetic/Test/low
+    dataroot_gt: /depot/natallah/data/shourya/Reti-Diff-main/datasets/LOL-v2/Real_captured/Test/Normal
+    dataroot_lq: /depot/natallah/data/shourya/Reti-Diff-main/datasets/LOL-v2/Real_captured/Test/Low
     io_backend:
       type: disk
 
@@ -79,8 +79,8 @@ network_S1:
 
 # path
 path:
-  pretrain_network_g: # put pretrained S1 model here
-  pretrain_network_S1: # put pretrained S1 model here
+  pretrain_network_g: /depot/natallah/data/shourya/Reti-Diff-main/experiments/RetiDiff_S1Model_LLIE/models/net_g_65000.pth
+  pretrain_network_S1: /depot/natallah/data/shourya/Reti-Diff-main/experiments/RetiDiff_S1Model_LLIE/models/net_g_65000.pth
   param_key_g: params_ema
   strict_load_g: False
   resume_state: ~

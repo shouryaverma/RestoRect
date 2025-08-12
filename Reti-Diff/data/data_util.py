@@ -222,6 +222,8 @@ def paired_paths_from_folder(folders, keys, filename_tmpl):
     Returns:
         list[str]: Returned path list.
     """
+    import re
+    
     assert len(folders) == 2, (
         'The len of folders should be 2 with [input_folder, gt_folder]. '
         f'But got {len(folders)}')
@@ -236,20 +238,36 @@ def paired_paths_from_folder(folders, keys, filename_tmpl):
     assert len(input_paths) == len(gt_paths), (
         f'{input_key} and {gt_key} datasets have different number of images: '
         f'{len(input_paths)}, {len(gt_paths)}.')
+    
+    # Create a mapping based on numeric part of filenames
+    input_dict = {}
+    for input_path in input_paths:
+        basename = osp.splitext(osp.basename(input_path))[0]
+        # Extract numeric part (assumes format like 'low00001', 'normal00001')
+        numeric_match = re.search(r'(\d+)', basename)
+        if numeric_match:
+            numeric_part = numeric_match.group(1)
+            input_dict[numeric_part] = input_path
+    
     paths = []
-    for idx in range(len(gt_paths)):
-        gt_path = gt_paths[idx]
-        basename, ext = osp.splitext(osp.basename(gt_path))
-        input_path = input_paths[idx]
-        basename_input, ext_input = osp.splitext(osp.basename(input_path))
-        input_name = f'{filename_tmpl.format(basename)}{ext_input}'
-        input_path = osp.join(input_folder, input_name)
-        assert input_name in input_paths, (f'{input_name} is not in '
-                                           f'{input_key}_paths.')
-        gt_path = osp.join(gt_folder, gt_path)
-        paths.append(
-            dict([(f'{input_key}_path', input_path),
-                  (f'{gt_key}_path', gt_path)]))
+    for gt_path in gt_paths:
+        basename_gt = osp.splitext(osp.basename(gt_path))[0]
+        # Extract numeric part from GT filename
+        numeric_match = re.search(r'(\d+)', basename_gt)
+        if numeric_match:
+            numeric_part = numeric_match.group(1)
+            if numeric_part in input_dict:
+                input_path = input_dict[numeric_part]
+                full_input_path = osp.join(input_folder, input_path)
+                full_gt_path = osp.join(gt_folder, gt_path)
+                paths.append(
+                    dict([(f'{input_key}_path', full_input_path),
+                          (f'{gt_key}_path', full_gt_path)]))
+            else:
+                raise ValueError(f'No matching input file found for GT file {gt_path} with numeric part {numeric_part}')
+        else:
+            raise ValueError(f'Could not extract numeric part from GT filename: {gt_path}')
+    
     return paths
 
 def paired_DP_paths_from_folder(folders, keys, filename_tmpl):

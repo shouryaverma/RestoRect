@@ -4,3 +4,7 @@ __pycache__/
 VERSION
 datasets/
 BasicSR/
+tb_logger/
+bash/*.out
+experiments/
+results/

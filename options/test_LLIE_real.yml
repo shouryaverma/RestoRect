@@ -13,8 +13,8 @@ datasets:
     name: Testset
     type: DeblurPairedDataset
     batch_size: 1
-    dataroot_gt: # put your own path here
-    dataroot_lq: # put your own path here
+    dataroot_gt: /depot/natallah/data/shourya/Reti-Diff-main/datasets/LOL-v2/Real_captured/Test/Normal
+    dataroot_lq: /depot/natallah/data/shourya/Reti-Diff-main/datasets/LOL-v2/Real_captured/Test/Low
     dataset_type: ~
     io_backend:
       type: disk
@@ -41,11 +41,11 @@ network_g:
 
 # path
 path:
-  pretrain_network_g: ./pretrained_models/llie_real.pth
+  pretrain_network_g: /depot/natallah/data/shourya/Reti-Diff-main/experiments/RetiDiff_S2Model_LLIE/models/net_g_265000.pth
   param_key_g: params_ema
   strict_load_g: False
 
-pretrain_decomnet_low: pretrained_models/retinex_decomnet.pth
+pretrain_decomnet_low: /depot/natallah/data/shourya/Reti-Diff-main/pretrained_models/retinex_decomnet.pth
 
 
 val:

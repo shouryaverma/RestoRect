@@ -120,10 +120,8 @@ def aux_load_initialize(model, decom_model_path):
 @MODEL_REGISTRY.register()
 class S2_Interface_Model(SRModel):
     """
-    It is trained without GAN losses.
-    It mainly performs:
-    1. randomly synthesize LQ images in GPU tensors
-    2. optimize the networks with GAN training.
+    RetiDiff S2 Interface Model for testing with RectifiedFlow
+    Updated to support RectifiedFlow instead of DDPM
     """
 
     def __init__(self, opt):
@@ -171,6 +169,7 @@ class S2_Interface_Model(SRModel):
         self.optimizer_g = self.get_optimizer(optim_type, optim_params, **train_opt['optim_g'])
         self.optimizers.append(self.optimizer_g)
 
+        # Parameters for rectified flow velocity predictors
         parms=[]
         for k,v in self.net_g.named_parameters():
             if "rex_denoise" in k or "rex_condition" in k or "img_denoise" in k or "img_condition" in k or"denoise" in k or "condition" in k:
@@ -267,6 +266,12 @@ class S2_Interface_Model(SRModel):
             self.cri_recon = build_loss(train_opt['recon_opt']).to(self.device)
         else:
             self.cri_recon = None
+
+        # Add velocity loss for rectified flow training
+        if train_opt.get('velocity_opt'):
+            self.cri_velocity = build_loss(train_opt['velocity_opt']).to(self.device)
+        else:
+            self.cri_velocity = nn.MSELoss()  # Default MSE for velocity prediction
 
         if self.cri_pix is None and self.cri_perceptual is None and self.cri_recon is None:
             raise ValueError('All losses are None.')
@@ -389,6 +394,7 @@ class S2_Interface_Model(SRModel):
         return lq,mod_pad_h,mod_pad_w
 
     def test(self):
+        """Testing with RectifiedFlow - much faster than DDPM"""
         window_size = self.opt['val'].get('window_size', 0)
         if window_size:
             lq,mod_pad_h,mod_pad_w=self.pad_test(window_size)
@@ -402,10 +408,12 @@ class S2_Interface_Model(SRModel):
         if hasattr(self, 'net_g_ema'):
             self.net_g_ema.eval()
             with torch.no_grad():
+                # RectifiedFlow inference is much simpler and faster
                 self.output = self.net_g_ema(lq, retinex_lq)
         else:
             self.net_g.eval()
             with torch.no_grad():
+                # RectifiedFlow inference is much simpler and faster
                 self.output = self.net_g(lq, retinex_lq)
             self.net_g.train()
         if window_size:
