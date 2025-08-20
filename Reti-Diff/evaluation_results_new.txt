@@ -1,0 +1,12 @@
+Image Quality Evaluation Results
+================================================================================
+GT Directory: /depot/natallah/data/shourya/Reti-Diff-main/datasets/LOL-v2/Real_captured/Test/Normal
+Predicted Directory: /depot/natallah/data/shourya/Reti-Diff-main/results/LLIE_Real/visualization/Testset
+Settings: crop_border=4, test_y_channel=True, correction=False
+Number of images: 100
+
+PSNR ↑: 22.241901 ± 6.084816
+SSIM ↑: 0.894558 ± 0.058683
+FID ↓:  36.832535
+NIQE ↓: 5.103811 ± 1.380511
+LPIPS ↓: 0.237932 ± 0.061235

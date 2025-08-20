@@ -240,7 +240,7 @@ def train_pipeline(root_path):
             # validation
             if opt.get('val') is not None and (current_iter % opt['val']['val_freq'] == 0):
                 try:
-                    if opt['val']['val_start'] is not None and current_iter < opt['val']['val_start']:
+                    if opt['val'].get('val_start') is not None and current_iter < opt['val']['val_start']:
                         logger.info(f'Skip val for {current_iter} iterations.')
                     else:
                         if len(val_loaders) > 1:

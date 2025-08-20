@@ -6,7 +6,7 @@
 #SBATCH -A pccr
 #SBATCH -N 1
 #SBATCH -p ai
-#SBATCH -q preemptible
+#SBATCH -q normal
 #SBATCH -t 48:00:00
 #SBATCH --gpus-per-node=8
 #SBATCH --cpus-per-gpu=14

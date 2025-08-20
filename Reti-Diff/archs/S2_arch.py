@@ -1,5 +1,5 @@
 import archs.common as common
-from ldm.rectified_flow import RectifiedFlow  # Changed from ddpm import
+from ldm.rectified_flow import RectifiedFlow
 import archs.attention as attention
 import torch
 import torch.nn as nn
@@ -8,7 +8,6 @@ from pdb import set_trace as stx
 import numbers
 from basicsr.utils.registry import ARCH_REGISTRY
 from einops import rearrange
-
 
 def to_3d(x):
     return rearrange(x, 'b c h w -> b (h w) c')
@@ -51,17 +50,42 @@ class WithBias_LayerNorm(nn.Module):
         sigma = x.var(-1, keepdim=True, unbiased=False)
         return (x - mu) / torch.sqrt(sigma + 1e-5) * self.weight + self.bias
 
+class SpatialChannelLayerNorm(nn.Module):
+    def __init__(self, dim, eps=1e-5):
+        super(SpatialChannelLayerNorm, self).__init__()
+        self.weight = nn.Parameter(torch.ones(dim))
+        self.eps = eps
+
+    def forward(self, x):
+        # x: [B, C, H, W]
+        b, c, h, w = x.shape
+        
+        # Compute mean and variance across spatial and channel dimensions
+        mean = x.view(b, -1).mean(dim=1, keepdim=True).view(b, 1, 1, 1)
+        var = x.view(b, -1).var(dim=1, keepdim=True, unbiased=False).view(b, 1, 1, 1)
+        
+        # Normalize
+        x_normalized = (x - mean) / torch.sqrt(var + self.eps)
+        
+        # Apply learned scaling
+        return x_normalized * self.weight.view(1, c, 1, 1)
+
 class LayerNorm(nn.Module):
     def __init__(self, dim, LayerNorm_type):
         super(LayerNorm, self).__init__()
         if LayerNorm_type == 'BiasFree':
             self.body = BiasFree_LayerNorm(dim)
+        elif LayerNorm_type == 'SpatialChannel':
+            self.body = SpatialChannelLayerNorm(dim)
         else:
             self.body = WithBias_LayerNorm(dim)
 
     def forward(self, x):
-        h, w = x.shape[-2:]
-        return to_4d(self.body(to_3d(x)), h, w)
+        if isinstance(self.body, SpatialChannelLayerNorm):
+            return self.body(x)
+        else:
+            h, w = x.shape[-2:]
+            return to_4d(self.body(to_3d(x)), h, w)
 
 
 class FeedForward(nn.Module):
@@ -103,6 +127,10 @@ class Attention(nn.Module):
         self.qkv = nn.Conv2d(dim, dim * 3, kernel_size=1, bias=bias)
         self.qkv_dwconv = nn.Conv2d(dim * 3, dim * 3, kernel_size=3, stride=1, padding=1, groups=dim * 3, bias=bias)
         self.project_out = nn.Conv2d(dim, dim, kernel_size=1, bias=bias)
+        
+        # Add QK layer normalization
+        self.q_norm = nn.LayerNorm(dim // num_heads)
+        self.k_norm = nn.LayerNorm(dim // num_heads)
 
     def forward(self, x, k_v):
         b, c, h, w = x.shape
@@ -116,6 +144,10 @@ class Attention(nn.Module):
         q = rearrange(q, 'b (head c) h w -> b head c (h w)', head=self.num_heads)
         k = rearrange(k, 'b (head c) h w -> b head c (h w)', head=self.num_heads)
         v = rearrange(v, 'b (head c) h w -> b head c (h w)', head=self.num_heads)
+
+        # Apply layer normalization to Q and K
+        q = self.q_norm(q.transpose(-2, -1)).transpose(-2, -1)
+        k = self.k_norm(k.transpose(-2, -1)).transpose(-2, -1)
 
         q = torch.nn.functional.normalize(q, dim=-1)
         k = torch.nn.functional.normalize(k, dim=-1)
@@ -151,6 +183,10 @@ class Rttention(nn.Module):
         self.kv_dwconv = nn.Conv2d(dim * 2, dim * 2, kernel_size=3, stride=1, padding=1, groups=dim * 2, bias=bias)
 
         self.project_out = nn.Conv2d(dim, dim, kernel_size=1, bias=bias)
+        
+        # Add QK layer normalization
+        self.q_norm = nn.LayerNorm(dim // num_heads)
+        self.k_norm = nn.LayerNorm(dim // num_heads)
 
     def forward(self, x, k_v):
         b, c, h, w = x.shape
@@ -168,6 +204,10 @@ class Rttention(nn.Module):
         q = rearrange(q, 'b (head c) h w -> b head c (h w)', head=self.num_heads)
         k = rearrange(k, 'b (head c) h w -> b head c (h w)', head=self.num_heads)
         v = rearrange(v, 'b (head c) h w -> b head c (h w)', head=self.num_heads)
+
+        # Apply layer normalization to Q and K
+        q = self.q_norm(q.transpose(-2, -1)).transpose(-2, -1)
+        k = self.k_norm(k.transpose(-2, -1)).transpose(-2, -1)
 
         q = torch.nn.functional.normalize(q, dim=-1)
         k = torch.nn.functional.normalize(k, dim=-1)
@@ -418,6 +458,7 @@ class PE(nn.Module):
         x = self.pixel_unshuffle(x)
         fea = self.E(x).squeeze(-1).squeeze(-1)
         fea1 = self.mlp(fea)
+        fea1 = F.layer_norm(fea1, fea1.shape[-1:])
         return fea1
 
 
@@ -486,6 +527,7 @@ class RPE(nn.Module):
         fea_R = self.mlp_R(fea_R) # b, 192
         fea_I = self.mlp_I(fea_I) # b, 64
         fea1 = torch.cat([fea_R, fea_I], dim=1)
+        fea1 = F.layer_norm(fea1, fea1.shape[-1:])
         return fea1
 
 
@@ -544,7 +586,7 @@ class RetiDiffS2(nn.Module):
                  heads=[1, 2, 4, 8],
                  ffn_expansion_factor=2.66,
                  bias=False,
-                 LayerNorm_type='WithBias',  ## Other option 'BiasFree'
+                 LayerNorm_type='SpatialChannel',
                  n_denoise_res=1,
                  linear_start=0.1,
                  linear_end=0.99,

@@ -400,7 +400,7 @@ def evaluate_images(gt_dir, pred_dir, output_file="evaluation_results.txt",
             if correct_mean_variance:
                 pred_img = correct_mean_var(pred_img.astype(np.float32), 
                                                                gt_img.astype(np.float32), 
-                                                               correction_strength=0.2)
+                                                               correction_strength=0.1)
             
             # Calculate metrics
             psnr = calculate_psnr(gt_img, pred_img, crop_border, test_y_channel)
@@ -508,7 +508,7 @@ def main():
 if __name__ == "__main__":
     # Example usage
     gt_dir = "/depot/natallah/data/shourya/Reti-Diff-main/datasets/LOL-v2/Real_captured/Test/Normal"
-    pred_dir = "/depot/natallah/data/shourya/Reti-Diff-main/results/LLIE_Real/visualization/Testset"
+    pred_dir = "/depot/natallah/data/shourya/Reti-Diff-main/results/LLIE_Real_new/visualization/Testset"
     
     print("Starting comprehensive evaluation...")
     evaluate_images(gt_dir, pred_dir, crop_border=4, test_y_channel=True, correct_mean_variance=True)

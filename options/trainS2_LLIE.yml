@@ -79,8 +79,8 @@ network_S1:
 
 # path
 path:
-  pretrain_network_g: /depot/natallah/data/shourya/Reti-Diff-main/experiments/RetiDiff_S1Model_LLIE/models/net_g_65000.pth
-  pretrain_network_S1: /depot/natallah/data/shourya/Reti-Diff-main/experiments/RetiDiff_S1Model_LLIE/models/net_g_65000.pth
+  pretrain_network_g: /depot/natallah/data/shourya/Reti-Diff-main/experiments/S1Model_LLIEreal_newest/models/net_g_70000.pth
+  pretrain_network_S1: /depot/natallah/data/shourya/Reti-Diff-main/experiments/S1Model_LLIEreal_newest/models/net_g_70000.pth
   param_key_g: params_ema
   strict_load_g: False
   resume_state: ~
@@ -101,8 +101,8 @@ train:
     milestones: [ 200000 ]
     gamma: 1
 
-  encoder_iter: 100000
-  total_iter: 400000
+  encoder_iter: 80000
+  total_iter: 240000
   lr_encoder: !!float 2e-4
   lr_sr: !!float 2e-4
   gamma_encoder: 0.1

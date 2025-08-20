@@ -42,3 +42,5 @@ printf "\tStart\t:$start\n\tEnd\t:$end\n\tTime\t:%02d:%02d:%02d\n" "$hours" "$mi
 printf "\t================================\n\n"
 
 sacct --jobs=$SLURM_JOBID --format=jobid,jobname,qos,nnodes,ncpu,maxrss,cputime,avecpu,elapsed
+
+# sinteractive -A pccr -N 1 -p ai -q preemptible -t 4:00:00 --gpus-per-node=1 --cpus-per-gpu=14 --mail-user=verma198@purdue.edu --mail-type=FAIL
