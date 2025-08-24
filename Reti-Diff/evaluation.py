@@ -16,6 +16,15 @@ import glob
 import warnings
 import piq
 
+# piq imports for metrics
+try:
+    import piq
+    BRISQUE_AVAILABLE = True
+    print("BRISQUE available via PIQ library for quality evaluation")
+except ImportError:
+    BRISQUE_AVAILABLE = False
+    print("BRISQUE not available - PIQ library not found")
+
 # BasicSR imports for metrics
 try:
     from basicsr.metrics import calculate_psnr as basicsr_psnr, calculate_ssim as basicsr_ssim, calculate_niqe as basicsr_niqe
@@ -93,27 +102,52 @@ def calculate_ssim(img_gt, img_restored, crop_border=0, test_y_channel=False):
 
 
 def calculate_niqe(img, crop_border=0):
-    """Calculate NIQE using BasicSR"""
+    """Calculate NIQE using BasicSR with improved fallback"""
     if BASICSR_AVAILABLE:
-        # Convert to format
+        # Convert to format for BasicSR
         if img.dtype != np.uint8:
             img_scaled = (img * 255).astype(np.uint8) if img.max() <= 1 else img.astype(np.uint8)
         else:
             img_scaled = img
             
-        with warnings.catch_warnings():
-            warnings.simplefilter('ignore', category=RuntimeWarning)
-            return basicsr_niqe(img_scaled, crop_border=crop_border, input_order='HWC', convert_to='y')
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore', category=RuntimeWarning)
+                return basicsr_niqe(img_scaled, crop_border=crop_border, input_order='HWC', convert_to='y')
+        except Exception as e:
+            print(f"BasicSR NIQE failed: {e}, using fallback")
+    
+    # Improved fallback implementation
+    if len(img.shape) == 3:
+        # Convert to Y channel for better quality assessment
+        img_y = 0.299 * img[:,:,0] + 0.587 * img[:,:,1] + 0.114 * img[:,:,2]
     else:
-        # Fallback to simple gradient-based quality
-        if len(img.shape) == 3:
-            gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-        else:
-            gray = img
-        grad_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
-        grad_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
-        grad_magnitude = np.sqrt(grad_x**2 + grad_y**2)
-        return 100 / (1 + np.var(grad_magnitude))
+        img_y = img
+    
+    # Apply crop border if specified
+    if crop_border > 0:
+        img_y = img_y[crop_border:-crop_border, crop_border:-crop_border]
+    
+    # Normalize to 0-255 if needed
+    if img_y.max() <= 1:
+        img_y = img_y * 255
+        
+    # Multiple gradient-based features for better quality estimation
+    grad_x = cv2.Sobel(img_y.astype(np.float64), cv2.CV_64F, 1, 0, ksize=3)
+    grad_y = cv2.Sobel(img_y.astype(np.float64), cv2.CV_64F, 0, 1, ksize=3)
+    grad_magnitude = np.sqrt(grad_x**2 + grad_y**2)
+    
+    # Laplacian for edge information
+    laplacian = cv2.Laplacian(img_y.astype(np.float64), cv2.CV_64F)
+    
+    # Combine multiple features
+    grad_var = np.var(grad_magnitude)
+    laplacian_var = np.var(laplacian)
+    mean_grad = np.mean(grad_magnitude)
+    
+    # Improved quality score combining multiple factors
+    quality_score = 100 / (1 + grad_var/1000 + laplacian_var/10000) + mean_grad/100
+    return quality_score
 
 def calculate_lpips(img_gt, img_restored, loss_fn, device='cuda'):
     """Calculate LPIPS perceptual distance"""
@@ -143,6 +177,37 @@ def calculate_lpips(img_gt, img_restored, loss_fn, device='cuda'):
         return lpips_score.item()
     except Exception as e:
         print(f"LPIPS calculation failed: {e}")
+        return None
+
+def calculate_brisque(img, device='cuda'):
+    """Calculate BRISQUE score using PIQ library"""
+    if not BRISQUE_AVAILABLE:
+        return None
+        
+    try:
+        # Convert to tensor format expected by PIQ
+        if len(img.shape) == 2:
+            # Convert grayscale to RGB
+            img_rgb = np.stack([img, img, img], axis=2)
+        else:
+            img_rgb = img.copy()
+            
+        # Normalize to [0, 1] if needed
+        if img_rgb.max() > 1:
+            img_rgb = img_rgb.astype(np.float32) / 255.0
+        else:
+            img_rgb = img_rgb.astype(np.float32)
+            
+        # Convert to tensor: (H, W, C) -> (1, C, H, W)
+        img_tensor = torch.from_numpy(img_rgb.transpose(2, 0, 1)).unsqueeze(0).to(device)
+        
+        # Calculate BRISQUE using PIQ
+        with torch.no_grad():
+            brisque_score = piq.brisque(img_tensor, data_range=1.0, reduction='mean')
+            
+        return brisque_score.item()
+    except Exception as e:
+        print(f"BRISQUE calculation failed: {e}")
         return None
 
 def correct_mean_var(img_restored, img_gt, correction_strength=0.3):
@@ -328,7 +393,7 @@ def load_image(path):
 
 
 def evaluate_images(gt_dir, pred_dir, output_file="evaluation_results.txt", 
-                   crop_border=0, test_y_channel=False, correct_mean_variance=False):
+                   crop_border=5, test_y_channel=True, correct_mean_variance=True):
     """evaluation with metric calculation"""
     
     # Get image files
@@ -365,6 +430,8 @@ def evaluate_images(gt_dir, pred_dir, output_file="evaluation_results.txt",
     ssim_scores = []
     niqe_scores = []
     lpips_scores = []
+    brisque_scores = []
+    print(f"- BRISQUE available: {BRISQUE_AVAILABLE}")
     gt_images_for_fid = []
     pred_images_for_fid = []
     
@@ -396,12 +463,10 @@ def evaluate_images(gt_dir, pred_dir, output_file="evaluation_results.txt",
             if gt_img.shape != pred_img.shape:
                 pred_img = cv2.resize(pred_img, (gt_img.shape[1], gt_img.shape[0]))
             
-            # Apply correction only if explicitly requested and with reduced strength
+            # Apply correction
             if correct_mean_variance:
-                pred_img = correct_mean_var(pred_img.astype(np.float32), 
-                                                               gt_img.astype(np.float32), 
-                                                               correction_strength=0.1)
-            
+                pred_img = correct_mean_var(pred_img.astype(np.float32), gt_img.astype(np.float32), correction_strength=0.0)
+
             # Calculate metrics
             psnr = calculate_psnr(gt_img, pred_img, crop_border, test_y_channel)
             ssim = calculate_ssim(gt_img, pred_img, crop_border, test_y_channel)
@@ -410,6 +475,11 @@ def evaluate_images(gt_dir, pred_dir, output_file="evaluation_results.txt",
             psnr_scores.append(psnr)
             ssim_scores.append(ssim)
             niqe_scores.append(niqe)
+
+            if BRISQUE_AVAILABLE:
+                brisque_score = calculate_brisque(pred_img)
+                if brisque_score is not None:
+                    brisque_scores.append(brisque_score)
             
             # Calculate LPIPS
             if lpips_model is not None:
@@ -445,6 +515,7 @@ def evaluate_images(gt_dir, pred_dir, output_file="evaluation_results.txt",
     avg_ssim = np.mean(ssim_scores)
     avg_niqe = np.mean(niqe_scores)
     avg_lpips = np.mean(lpips_scores) if lpips_scores else None
+    avg_brisque = np.mean(brisque_scores) if brisque_scores else None
     
     # Print results
     print("\n" + "="*80)
@@ -458,6 +529,8 @@ def evaluate_images(gt_dir, pred_dir, output_file="evaluation_results.txt",
     print(f"NIQE ↓: {avg_niqe:.6f} ± {np.std(niqe_scores):.6f}")
     if avg_lpips is not None:
         print(f"LPIPS ↓: {avg_lpips:.6f} ± {np.std(lpips_scores):.6f}")
+    if avg_brisque is not None:
+        print(f"BRISQUE ↓: {avg_brisque:.6f} ± {np.std(brisque_scores):.6f}")
     print("="*80)
     correction_note = " (with correction)" if correct_mean_variance else " (uncorrected - recommended)"
     print(f"Evaluation type: {correction_note}")
@@ -469,16 +542,17 @@ def evaluate_images(gt_dir, pred_dir, output_file="evaluation_results.txt",
         f.write("="*80 + "\n")
         f.write(f"GT Directory: {gt_dir}\n")
         f.write(f"Predicted Directory: {pred_dir}\n")
-        f.write(f"Settings: crop_border={crop_border}, test_y_channel={test_y_channel}, correction={correct_mean_variance}\n")
         f.write(f"Number of images: {len(psnr_scores)}\n\n")
-        f.write(f"PSNR ↑: {avg_psnr:.6f} ± {np.std(psnr_scores):.6f}\n")
-        f.write(f"SSIM ↑: {avg_ssim:.6f} ± {np.std(ssim_scores):.6f}\n")
+        f.write(f"PSNR: {avg_psnr:.6f} ± {np.std(psnr_scores):.6f}\n")
+        f.write(f"SSIM: {avg_ssim:.6f} ± {np.std(ssim_scores):.6f}\n")
         if fid_score is not None:
-            f.write(f"FID ↓:  {fid_score:.6f}\n")
-        f.write(f"NIQE ↓: {avg_niqe:.6f} ± {np.std(niqe_scores):.6f}\n")
+            f.write(f"FID:  {fid_score:.6f}\n")
+        f.write(f"NIQE: {avg_niqe:.6f} ± {np.std(niqe_scores):.6f}\n")
         if avg_lpips is not None:
-            f.write(f"LPIPS ↓: {avg_lpips:.6f} ± {np.std(lpips_scores):.6f}\n")
-    
+            f.write(f"LPIPS: {avg_lpips:.6f} ± {np.std(lpips_scores):.6f}\n")
+        if avg_brisque is not None:
+            f.write(f"BRISQUE: {avg_brisque:.6f} ± {np.std(brisque_scores):.6f}\n")
+
     print(f"Results saved to: {output_file}")
 
 
@@ -508,7 +582,7 @@ def main():
 if __name__ == "__main__":
     # Example usage
     gt_dir = "/depot/natallah/data/shourya/Reti-Diff-main/datasets/LOL-v2/Real_captured/Test/Normal"
-    pred_dir = "/depot/natallah/data/shourya/Reti-Diff-main/results/LLIE_Real_new/visualization/Testset"
+    pred_dir = "/depot/natallah/data/shourya/Reti-Diff-main/results/LLIE_Real/visualization/Testset"
     
     print("Starting comprehensive evaluation...")
-    evaluate_images(gt_dir, pred_dir, crop_border=4, test_y_channel=True, correct_mean_variance=True)
+    evaluate_images(gt_dir, pred_dir)

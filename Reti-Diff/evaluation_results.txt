@@ -1,12 +1,12 @@
 Image Quality Evaluation Results
 ================================================================================
 GT Directory: /depot/natallah/data/shourya/Reti-Diff-main/datasets/LOL-v2/Real_captured/Test/Normal
-Predicted Directory: /depot/natallah/data/shourya/Reti-Diff-main/results/LLIE_Real_new/visualization/Testset
-Settings: crop_border=4, test_y_channel=True, correction=True
+Predicted Directory: /depot/natallah/data/shourya/Reti-Diff-main/results/LLIE_Real/visualization/Testset
 Number of images: 100
 
-PSNR ↑: 23.036047 ± 5.887129
-SSIM ↑: 0.900675 ± 0.054723
-FID ↓:  36.832535
-NIQE ↓: 5.120098 ± 1.399171
-LPIPS ↓: 0.235032 ± 0.060401
+PSNR: 23.416614 ± 4.685766
+SSIM: 0.905137 ± 0.049705
+FID:  37.141748
+NIQE: 5.128683 ± 1.745162
+LPIPS: 0.231728 ± 0.056502
+BRISQUE: 31.713307 ± 11.530365

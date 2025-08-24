@@ -13,41 +13,6 @@ from models import lr_scheduler as lr_scheduler
 import torch.nn as nn
 import os
 
-class FrequencyDistributionLoss(nn.Module):
-    def __init__(self, loss_weight=0.05):
-        super().__init__()
-        self.loss_weight = loss_weight
-        
-    def forward(self, pred, target):
-        # Transform to frequency domain using DFT
-        pred_fft = torch.fft.fft2(pred, dim=(-2, -1))
-        target_fft = torch.fft.fft2(target, dim=(-2, -1))
-        
-        # Separate amplitude and phase
-        pred_amp = torch.abs(pred_fft)
-        pred_phase = torch.angle(pred_fft)
-        target_amp = torch.abs(target_fft)
-        target_phase = torch.angle(target_fft)
-        
-        # Compute losses for different frequency components
-        amp_loss = F.l1_loss(pred_amp, target_amp)
-        phase_loss = F.l1_loss(pred_phase, target_phase)
-        
-        # Weight high-frequency components more for enhancement
-        h, w = pred.shape[-2:]
-        high_freq_mask = self.create_high_freq_mask(h, w, pred.device)
-        high_freq_loss = F.l1_loss(pred_amp * high_freq_mask, target_amp * high_freq_mask)
-        
-        return self.loss_weight * (amp_loss + phase_loss + 0.5 * high_freq_loss)
-    
-    def create_high_freq_mask(self, h, w, device):
-        """Create mask emphasizing high-frequency components"""
-        y, x = torch.meshgrid(torch.arange(h), torch.arange(w), indexing='ij')
-        center_y, center_x = h // 2, w // 2
-        radius = torch.sqrt((y - center_y)**2 + (x - center_x)**2)
-        high_freq_mask = (radius > min(h, w) * 0.1).float().to(device)
-        return high_freq_mask.unsqueeze(0).unsqueeze(0)
-
 class AnisotropicDiffusion(nn.Module):
     def __init__(self, sensitivity_param=0.1):
         super().__init__()
@@ -256,18 +221,6 @@ class Decom(nn.Module):
         
         return R, L[:, 0:1, :, :], constraint_losses
 
-# def aux_load_initialize(model, decom_model_path):
-#     if os.path.exists(decom_model_path):
-#         checkpoint_Decom_low = torch.load(decom_model_path)
-#         model.load_state_dict(checkpoint_Decom_low['state_dict']['model_R'])
-#         # to freeze the params of Decomposition Model
-#         for param in model.parameters():
-#             param.requires_grad = False
-#         return model
-#     else:
-#         print("pretrained Initialize Model does not exist, check ---> %s " % decom_model_path)
-#         exit()
-
 def aux_load_initialize(model, decom_model_path):
     if os.path.exists(decom_model_path):
         checkpoint_Decom_low = torch.load(decom_model_path)
@@ -381,8 +334,7 @@ class RetiDiff_S1Model(SRModel):
         # Call parent class init_training_settings first
         super().init_training_settings()
         
-        # Add frequency domain loss
-        self.cri_freq = FrequencyDistributionLoss(loss_weight=0.05).to(self.device)
+        # Add polarized color loss
         self.cri_hvi = PolarizedHVIColorLoss(weight=0.05).to(self.device)
 
     def feed_data(self, data):
@@ -465,11 +417,6 @@ class RetiDiff_S1Model(SRModel):
             l_recon_in = self.cri_pix(self.recon[0], self.lq)
             l_total += l_recon_in
             loss_dict['l_recon_in'] = l_recon_in
-            
-            l_freq = self.cri_freq(self.output, self.gt)
-            l_total += l_freq
-            loss_dict['l_freq'] = l_freq
-
             l_hvi = self.cri_hvi(self.output, self.gt)
             l_total += l_hvi
             loss_dict['l_hvi'] = l_hvi

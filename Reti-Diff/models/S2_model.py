@@ -18,41 +18,6 @@ import os
 
 from losses.lp_loss import LatentPerceptualLoss, LPLIntegrator
 
-class FrequencyDistributionLoss(nn.Module):
-    def __init__(self, loss_weight=0.2):
-        super().__init__()
-        self.loss_weight = loss_weight
-        
-    def forward(self, pred, target):
-        # Transform to frequency domain using DFT
-        pred_fft = torch.fft.fft2(pred, dim=(-2, -1))
-        target_fft = torch.fft.fft2(target, dim=(-2, -1))
-        
-        # Separate amplitude and phase
-        pred_amp = torch.abs(pred_fft)
-        pred_phase = torch.angle(pred_fft)
-        target_amp = torch.abs(target_fft)
-        target_phase = torch.angle(target_fft)
-        
-        # Compute losses for different frequency components
-        amp_loss = F.l1_loss(pred_amp, target_amp)
-        phase_loss = F.l1_loss(pred_phase, target_phase)
-        
-        # Weight high-frequency components more for enhancement
-        h, w = pred.shape[-2:]
-        high_freq_mask = self.create_high_freq_mask(h, w, pred.device)
-        high_freq_loss = F.l1_loss(pred_amp * high_freq_mask, target_amp * high_freq_mask)
-        
-        return self.loss_weight * (amp_loss + phase_loss + 0.5 * high_freq_loss)
-    
-    def create_high_freq_mask(self, h, w, device):
-        """Create mask emphasizing high-frequency components"""
-        y, x = torch.meshgrid(torch.arange(h), torch.arange(w), indexing='ij')
-        center_y, center_x = h // 2, w // 2
-        radius = torch.sqrt((y - center_y)**2 + (x - center_x)**2)
-        high_freq_mask = (radius > min(h, w) * 0.1).float().to(device)
-        return high_freq_mask.unsqueeze(0).unsqueeze(0)
-
 class AnisotropicDiffusion(nn.Module):
     def __init__(self, sensitivity_param=0.1):
         super().__init__()
@@ -217,6 +182,7 @@ def get_deconv2d_layer(in_c, out_c, k=1, s=1, p=1):
             padding=p
         )
     )
+
 class Decom(nn.Module):
     def __init__(self):
         super().__init__()
