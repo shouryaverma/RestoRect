@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 
-# CUDA_VISIBLE_DEVICES=0,1,2,3 python3 -m torch.distributed.launch --nproc_per_node=4  --use_env --master_port=4388 /depot/natallah/data/shourya/Reti-Diff-main/Reti-Diff/train.py -opt /depot/natallah/data/shourya/Reti-Diff-main/options/trainS2_LLIE.yml --launcher pytorch
+# CUDA_VISIBLE_DEVICES=0,1,2,3 python3 -m torch.distributed.launch --nproc_per_node=4  --use_env --master_port=4388 /depot/natallah/data/shourya/Reti-Diff-main/Reti-Diff/train.py -opt /depot/natallah/data/shourya/Reti-Diff-main/options/trainS1_LLIE.yml --launcher pytorch
 
 #!/bin/bash
 #SBATCH -A pccr
 #SBATCH -N 1
 #SBATCH -p ai
-#SBATCH -q normal
+#SBATCH -q preemptible
 #SBATCH -t 48:00:00
-#SBATCH --gpus-per-node=8
+#SBATCH --gpus-per-node=4
 #SBATCH --cpus-per-gpu=14
 #SBATCH --mail-user=verma198@purdue.edu
 #SBATCH --mail-type=FAIL
@@ -22,13 +22,13 @@ conda activate /depot/natallah/data/shourya/Reti-Diff_env
 export CUDA_LAUNCH_BLOCKING=1
 
 # Set GPU environment variable for multi-GPU training
-export GPU=0,1,2,3,4,5,6,7
+export GPU=0,1,2,3
 
 # Change to your project directory
 cd /depot/natallah/data/shourya/Reti-Diff-main
 
 # Run the multi-GPU training pipeline
-CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 python3 -m torch.distributed.launch --nproc_per_node=8  --use_env --master_port=4388 /depot/natallah/data/shourya/Reti-Diff-main/Reti-Diff/train.py -opt /depot/natallah/data/shourya/Reti-Diff-main/options/trainS2_LLIE.yml --launcher pytorch
+CUDA_VISIBLE_DEVICES=0,1,2,3 python3 -m torch.distributed.launch --nproc_per_node=4 --use_env --master_port=4388 /depot/natallah/data/shourya/Reti-Diff-main/Reti-Diff/train.py -opt /depot/natallah/data/shourya/Reti-Diff-main/options/trainS1_LLIE_v1.yml --launcher pytorch
 
 ends=$(date +"%s")
 end=$(date +"%r, %m-%d-%Y")

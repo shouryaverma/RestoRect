@@ -41,7 +41,7 @@ network_g:
 
 # path
 path:
-  pretrain_network_g: /depot/natallah/data/shourya/Reti-Diff-main/experiments/RetiDiff_S2Model_LLIE_new/models/net_g_145000.pth
+  pretrain_network_g: /depot/natallah/data/shourya/Reti-Diff-main/experiments/S2Model_LLIEreal_best/models/net_g_185000.pth
   param_key_g: params_ema
   strict_load_g: False
 

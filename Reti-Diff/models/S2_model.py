@@ -16,7 +16,7 @@ from basicsr.utils import get_root_logger
 from basicsr.losses import build_loss
 import os
 
-from losses.lp_loss import LatentPerceptualLoss, LPLIntegrator
+from losses.flex_loss import FlexLoss
 
 class AnisotropicDiffusion(nn.Module):
     def __init__(self, sensitivity_param=0.1):
@@ -263,9 +263,9 @@ def aux_load_initialize(model, decom_model_path):
         exit()
 
 @MODEL_REGISTRY.register()
-class RetiDiff_S2Model(SRModel):
+class RestoRect_S2Model(SRModel):
     """
-    Updated RetiDiff Stage 2 model using Rectified Flow instead of DDPM.
+    Updated RestoRect Stage 2 model using Rectified Flow instead of DDPM.
     
     Key improvements:
     1. Faster sampling with rectified flow (1-4 steps vs 100+ DDPM steps)
@@ -274,7 +274,8 @@ class RetiDiff_S2Model(SRModel):
     """
 
     def __init__(self, opt):
-        super(RetiDiff_S2Model, self).__init__(opt)
+        self.use_flex = opt.get('use_flex', True)
+        super(RestoRect_S2Model, self).__init__(opt)
         if self.is_train:
             self.mixing_flag = self.opt['train']['mixing_augs'].get('mixup', False)
             if self.mixing_flag:
@@ -316,11 +317,9 @@ class RetiDiff_S2Model(SRModel):
         self.Decom_h = aux_load_initialize(self.Decom_h, opt['pretrain_decomnet_high'])
         self.Decom_h.eval()
 
-        # Add LPL option parsing
-        if self.is_train:
-            self.use_lpl = opt.get('use_lpl', False)
-            if self.use_lpl:
-                print("----------------------- LPL enabled -----------------------")
+        # Add FLEX option parsing
+        if self.use_flex and self.is_train:
+            print("----------------------- FLEX enabled -----------------------")
 
     def setup_optimizers(self):
         train_opt = self.opt['train']
@@ -440,22 +439,42 @@ class RetiDiff_S2Model(SRModel):
         else:
             self.cri_velocity = nn.MSELoss()  # Default MSE for velocity prediction
 
-        # Add LPL loss initialization
-        if hasattr(self, 'use_lpl') and self.use_lpl:
+        print(f"Tried to initialize FLEX loss")
+        # Add FLEX loss initialization
+        if hasattr(self, 'use_flex') and self.use_flex:
             train_opt = self.opt['train']
-            lpl_opt = train_opt.get('lpl_opt', {})
+            flex_opt = train_opt.get('flex_opt', {})
+
+            # Use default target layers for RestoRectS2
+            target_layers = flex_opt.get('target_layers', [
+                'decoder_level3', 'decoder_level2', 'decoder_level1', 'img_refinement'
+            ])
             
-            self.cri_lpl = LatentPerceptualLoss(
-                loss_weight=lpl_opt.get('loss_weight', 0.1),
-                snr_threshold=lpl_opt.get('snr_threshold', 0.3),
-                target_layers=lpl_opt.get('target_layers', None),  # Use defaults
-                apply_cross_norm=lpl_opt.get('apply_cross_norm', True),
-                apply_outlier_detection=lpl_opt.get('apply_outlier_detection', True)
-            ).to(self.device)
-            
-            print(f"LPL initialized with weight: {lpl_opt.get('loss_weight', 0.1)}")
+            print(f"Initializing FLEX with target layers: {target_layers}")
+
+            try:
+                self.cri_flex = FlexLoss(
+                    target_layers=target_layers,
+                    layer_weights=flex_opt.get('layer_weights', None),
+                    loss_weight=flex_opt.get('loss_weight', 0.15),
+                    snr_threshold=flex_opt.get('snr_threshold', 0.4),
+                    outlier_threshold=flex_opt.get('outlier_threshold', 2.5),
+                    kernel_size=flex_opt.get('kernel_size', 3),
+                    apply_cross_norm=flex_opt.get('apply_cross_norm', True),
+                    apply_outlier_detection=flex_opt.get('apply_outlier_detection', True)
+                ).to(self.device)
+
+                print(f"FLEX initialized successfully with:")
+                print(f"  - Loss weight: {flex_opt.get('loss_weight', 0.15)}")
+                print(f"  - SNR threshold: {flex_opt.get('snr_threshold', 0.4)}")
+                print(f"  - Target layers: {target_layers}")
+                
+            except Exception as e:
+                print(f"FLEX initialization failed: {e}")
+                self.cri_flex = None
         else:
-            self.cri_lpl = None      
+            print(f"FLEX loss not initialized - use_flex: {getattr(self, 'use_flex', 'not set')}")
+            self.cri_flex = None
 
         if self.cri_pix is None and self.cri_perceptual is None and self.cri_recon is None:
             raise ValueError('All losses are None.')
@@ -475,7 +494,7 @@ class RetiDiff_S2Model(SRModel):
     def nondist_validation(self, dataloader, current_iter, tb_logger, save_img):
         # do not use the synthetic process during validation
         self.is_train = False
-        super(RetiDiff_S2Model, self).nondist_validation(dataloader, current_iter, tb_logger, save_img)
+        super(RestoRect_S2Model, self).nondist_validation(dataloader, current_iter, tb_logger, save_img)
         self.is_train = True
 
     def pad_test(self, window_size):        
@@ -551,6 +570,9 @@ class RetiDiff_S2Model(SRModel):
         return consistency_loss
 
     def optimize_parameters(self, current_iter):
+        # Clear cache at start
+        torch.cuda.empty_cache()
+        
         with torch.no_grad():
             self.r_gt, self.i_gt, _ = self.Decom_h(self.gt)
             self.r_lq, self.i_lq, _ = self.Decom_l(self.lq)
@@ -558,25 +580,31 @@ class RetiDiff_S2Model(SRModel):
         self.retinex_gt = torch.cat([self.r_gt, self.i_gt], dim=1)
         self.retinex_lq = torch.cat([self.r_lq, self.i_lq], dim=1)
 
+        # Learning rate scheduling
         if current_iter < self.encoder_iter:
-            lr_encoder = self.lr_encoder * (self.gamma_encoder ** ((current_iter ) // self.lr_decay_encoder))
+            lr_encoder = self.lr_encoder * (self.gamma_encoder ** ((current_iter) // self.lr_decay_encoder))
             for param_group in self.optimizer_e.param_groups:
                 param_group['lr'] = lr_encoder
         else:
-            lr = self.lr_sr * (self.gamma_sr ** ((current_iter - self.encoder_iter ) // self.lr_decay_sr))
+            lr = self.lr_sr * (self.gamma_sr ** ((current_iter - self.encoder_iter) // self.lr_decay_sr))
             for param_group in self.optimizer_g.param_groups:
                 param_group['lr'] = lr 
         
         l_total = 0
         loss_dict = OrderedDict()
-        _, S1_IPR_rex = self.model_Es1_rex(self.retinex_lq, self.retinex_gt)
-        _, S1_IPR_img = self.model_Es1_img(self.lq, self.gt)
+        
+        # Get S1 features WITH no_grad to prevent gradient accumulation
+        with torch.no_grad():
+            _, S1_IPR_rex = self.model_Es1_rex(self.retinex_lq, self.retinex_gt)
+            _, S1_IPR_img = self.model_Es1_img(self.lq, self.gt)
+            # Detach to ensure no gradients
+            S1_IPR_rex = [f.detach() for f in S1_IPR_rex]
+            S1_IPR_img = [f.detach() for f in S1_IPR_img]
 
         if current_iter < self.encoder_iter:
-            # Phase 1: Train only velocity predictors (rectified flow encoders)
+            # Phase 1: Train only velocity predictors
             self.optimizer_e.zero_grad()
             
-            # Handle distributed vs single GPU
             if self.opt['dist']:
                 rex_diffusion = self.net_g.module.rex_diffusion
                 img_diffusion = self.net_g.module.img_diffusion
@@ -584,7 +612,6 @@ class RetiDiff_S2Model(SRModel):
                 rex_diffusion = self.net_g.rex_diffusion
                 img_diffusion = self.net_g.img_diffusion
             
-            # Get rectified flow training with velocity prediction
             _, pred_IPR_list_rex = rex_diffusion(self.retinex_lq, S1_IPR_rex[0])
             _, pred_IPR_list_img = img_diffusion(self.lq, S1_IPR_img[0])
 
@@ -594,25 +621,22 @@ class RetiDiff_S2Model(SRModel):
             S2_IPR_rex = [pred_IPR_list_rex[i_rex]]
             S2_IPR_img = [pred_IPR_list_img[i_img]]
 
-            # Knowledge distillation loss (same as before)
+            # Knowledge distillation losses
             l_kd_r, l_abs_r = self.cri_kd(S1_IPR_rex, S2_IPR_rex)
             l_kd_i, l_abs_i = self.cri_kd(S1_IPR_img, S2_IPR_img)
 
-            # Add velocity losses for proper RF training
+            # Velocity losses
             if hasattr(rex_diffusion, 'velocity_loss'):
                 l_velocity_rex = rex_diffusion.velocity_loss
-                l_total += l_velocity_rex * 0.1  # Weight the velocity loss
+                l_total += l_velocity_rex * 0.1
                 loss_dict['l_velocity_rex'] = l_velocity_rex
-                
+                    
             if hasattr(img_diffusion, 'velocity_loss'):
                 l_velocity_img = img_diffusion.velocity_loss
-                l_total += l_velocity_img * 0.1  # Weight the velocity loss  
+                l_total += l_velocity_img * 0.1
                 loss_dict['l_velocity_img'] = l_velocity_img
 
-            # Knowledge distillation losses
-            l_total += l_abs_r
-            l_total += l_abs_i
-
+            l_total += l_abs_r + l_abs_i
             loss_dict['r_l_kd_%d'%(i_rex)] = l_kd_r
             loss_dict['r_l_abs_%d'%(i_rex)] = l_abs_r
             loss_dict['i_l_kd_%d' % (i_img)] = l_kd_i
@@ -621,20 +645,25 @@ class RetiDiff_S2Model(SRModel):
             l_total.backward()
             self.optimizer_e.step()
 
+            # Clear intermediate tensors
+            del pred_IPR_list_rex, pred_IPR_list_img, S2_IPR_rex, S2_IPR_img
+            torch.cuda.empty_cache()
+
         else:
-            # Phase 2: Train full network with rectified flow
+            # Phase 2: Train full network
             self.optimizer_g.zero_grad()
+            
             S1_IPR = [S1_IPR_rex[0], S1_IPR_img[0]]
             self.output, pred_IPR_list, output_rex = self.net_g(self.lq, self.retinex_lq, S1_IPR)
             output_decom_img = output_rex[0]
             output_decom_mat = output_rex[1]
 
-            # Main reconstruction loss
+            # 1. Main reconstruction loss
             l_pix = self.cri_pix(self.output, self.gt)
             l_total += l_pix
             loss_dict['l_pix'] = l_pix
 
-            # Decomposition consistency losses
+            # 2. Decomposition consistency losses
             l_recon_in = self.cri_pix(output_decom_img, self.lq)
             l_total += l_recon_in
             loss_dict['l_recon_in'] = l_recon_in
@@ -643,40 +672,9 @@ class RetiDiff_S2Model(SRModel):
             l_total += l_recon_out
             loss_dict['l_recon_out'] = l_recon_out
 
-            # LPL Loss: Compare S1 (teacher) vs S2 (student) transformer features
-            if self.cri_lpl is not None:
-                # Get S1 teacher features (clean/reference)
-                with torch.no_grad():
-                    if self.opt['dist']:
-                        s1_transformer = self.net_g_S1.module.G
-                    else:
-                        s1_transformer = self.net_g_S1.G
-                        
-                    # S1 processing with teacher features
-                    s1_features = self.cri_lpl.extract_multi_scale_features(
-                        s1_transformer, self.lq, S1_IPR_rex[0], S1_IPR_img[0]
-                    )
-                
-                # Get S2 student features (predicted)
-                if self.opt['dist']:
-                    s2_transformer = self.net_g.module.G
-                else:
-                    s2_transformer = self.net_g.G
-                    
-                # S2 processing with rectified flow features
-                s2_features = self.cri_lpl.extract_multi_scale_features(
-                    s2_transformer, self.lq, pred_IPR_list[0][-1], pred_IPR_list[1][-1]
-                )
-                
-                # Compute LPL loss (with timestep for SNR thresholding)
-                # For phase 2, we consider it high quality (low timestep)
-                l_lpl = self.cri_lpl(s1_features, s2_features, timestep=0.1, max_timestep=1.0)
-                l_total += l_lpl
-                loss_dict['l_lpl'] = l_lpl
-
-            # Knowledge distillation with rectified flow features
-            i_rex=len(pred_IPR_list[0])-1
-            i_img=len(pred_IPR_list[1])-1
+            # 3. Knowledge distillation losses
+            i_rex = len(pred_IPR_list[0]) - 1
+            i_img = len(pred_IPR_list[1]) - 1
 
             S2_IPR_rex = [pred_IPR_list[0][i_rex]]
             S2_IPR_img = [pred_IPR_list[1][i_img]]
@@ -684,17 +682,28 @@ class RetiDiff_S2Model(SRModel):
             l_kd_r, l_abs_r = self.cri_kd(S1_IPR_rex, S2_IPR_rex)
             l_kd_i, l_abs_i = self.cri_kd(S1_IPR_img, S2_IPR_img)
 
-            # Trajectory consistency losses (should be smoother with adaptive stepping)
-            l_consistency_rex = self.compute_trajectory_consistency_loss(pred_IPR_list[0], S1_IPR_rex[0])
-            l_consistency_img = self.compute_trajectory_consistency_loss(pred_IPR_list[1], S1_IPR_img[0])
+            l_total += l_abs_r + l_abs_i
+            loss_dict['r_l_kd_%d'%(i_rex)] = l_kd_r
+            loss_dict['r_l_abs_%d'%(i_rex)] = l_abs_r
+            loss_dict['i_l_kd_%d' % (i_img)] = l_kd_i
+            loss_dict['i_l_abs_%d' % (i_img)] = l_abs_i
 
-            l_total += l_consistency_rex * 0.1
-            l_total += l_consistency_img * 0.1
-            loss_dict['l_consistency_rex'] = l_consistency_rex
-            loss_dict['l_consistency_img'] = l_consistency_img
-            
-            # Adaptive velocity losses in phase 2
-            if self.opt['dist']:
+            # 4. Efficient FLEX Loss - core innovation preserved
+            if self.cri_flex is not None:
+                # Use key features from each stream
+                teacher_features = [S1_IPR_rex[0], S1_IPR_img[0]]  # Key teacher features
+                student_features = [pred_IPR_list[0][i_rex], pred_IPR_list[1][i_img]]  # Student features
+                
+                # Apply FLEX with SNR thresholding
+                timestep = 0.2  # High SNR regime for RF
+                l_flex = self.cri_flex(teacher_features, student_features, 
+                                    timestep=timestep, max_timestep=1.0)
+
+                l_total += l_flex
+                loss_dict['l_flex'] = l_flex
+
+            # 5. Velocity losses (lower weight in Phase 2)
+            if self.opt.get('dist', False):
                 rex_diffusion = self.net_g.module.rex_diffusion
                 img_diffusion = self.net_g.module.img_diffusion
             else:
@@ -703,24 +712,24 @@ class RetiDiff_S2Model(SRModel):
                 
             if hasattr(rex_diffusion, 'velocity_loss'):
                 l_velocity_rex = rex_diffusion.velocity_loss
-                l_total += l_velocity_rex * 0.05  # Lower weight in phase 2
+                l_total += l_velocity_rex * 0.05
                 loss_dict['l_velocity_rex'] = l_velocity_rex
                 
             if hasattr(img_diffusion, 'velocity_loss'):
                 l_velocity_img = img_diffusion.velocity_loss
-                l_total += l_velocity_img * 0.05  # Lower weight in phase 2
+                l_total += l_velocity_img * 0.05
                 loss_dict['l_velocity_img'] = l_velocity_img
-            
-            l_total += l_abs_r
-            l_total += l_abs_i
-            loss_dict['r_l_kd_%d'%(i_rex)] = l_kd_r
-            loss_dict['r_l_abs_%d'%(i_rex)] = l_abs_r
-            loss_dict['i_l_kd_%d' % (i_img)] = l_kd_i
-            loss_dict['i_l_abs_%d' % (i_img)] = l_abs_i
 
             l_total.backward()
             self.optimizer_g.step()
 
+            # Clear large intermediate tensors after backward pass
+            del output_decom_img, output_decom_mat, pred_IPR_list, S2_IPR_rex, S2_IPR_img
+            torch.cuda.empty_cache()
+
+        # Clear S1 features at the end
+        del S1_IPR_rex, S1_IPR_img
+        
         self.log_dict = self.reduce_loss_dict(loss_dict)
 
         if self.ema_decay > 0:

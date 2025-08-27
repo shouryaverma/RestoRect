@@ -535,7 +535,7 @@ class RPE(nn.Module):
 
 
 @ARCH_REGISTRY.register()
-class RetiDiffS1(nn.Module):
+class RestoRectS1(nn.Module):
     def __init__(self,
                  n_encoder_res=6,
                  inp_channels=3,
@@ -548,7 +548,7 @@ class RetiDiffS1(nn.Module):
                  bias=False,
                  LayerNorm_type='SpatialChannel',  ## Other option 'BiasFree'
                  ):
-        super(RetiDiffS1, self).__init__()
+        super(RestoRectS1, self).__init__()
 
         # Generator
         self.G = RGFormer(

@@ -257,7 +257,7 @@ def aux_load_initialize(model, decom_model_path):
         exit()
 
 @MODEL_REGISTRY.register()
-class RetiDiff_S1Model(SRModel):
+class RestoRect_S1Model(SRModel):
     """
     It is trained without GAN losses.
     It mainly performs:
@@ -266,7 +266,7 @@ class RetiDiff_S1Model(SRModel):
     """
 
     def __init__(self, opt):
-        super(RetiDiff_S1Model, self).__init__(opt)
+        super(RestoRect_S1Model, self).__init__(opt)
         if self.is_train:
             self.mixing_flag = self.opt['train']['mixing_augs'].get('mixup', False)
             if self.mixing_flag:
@@ -348,7 +348,7 @@ class RetiDiff_S1Model(SRModel):
     def nondist_validation(self, dataloader, current_iter, tb_logger, save_img):
         # do not use the synthetic process during validation
         self.is_train = False
-        super(RetiDiff_S1Model, self).nondist_validation(dataloader, current_iter, tb_logger, save_img)
+        super(RestoRect_S1Model, self).nondist_validation(dataloader, current_iter, tb_logger, save_img)
         self.is_train = True
 
     def pad_test(self, window_size):

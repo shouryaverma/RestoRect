@@ -197,7 +197,7 @@ class RectifiedFlow(nn.Module):
             return img, intermediates
         return img
 
-    def sample(self, batch_size=16, return_intermediates=False, num_steps=20):
+    def sample(self, batch_size=16, return_intermediates=False, num_steps=5):
         """Generate samples using rectified flow
         
         Args:
@@ -273,7 +273,7 @@ class RectifiedFlow(nn.Module):
             deg_prep = x_noise
             
             # Quick sampling to generate features
-            num_quick_steps = max(20, self.num_timesteps)
+            num_quick_steps = min(5, self.num_timesteps)
             time_schedule = np.linspace(1.0, 0.0, num_quick_steps + 1)
             
             for i in range(num_quick_steps):
@@ -304,7 +304,7 @@ class RectifiedFlow(nn.Module):
             c = self.condition(input_features)
             
             # Use fast sampling
-            num_steps = 20
+            num_steps = 5
             time_schedule = np.linspace(1.0, 0.0, num_steps + 1)
             
             x_current = x_noisy

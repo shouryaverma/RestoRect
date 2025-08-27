@@ -1,6 +1,6 @@
 # general settings
-name: RetiDiff_S1Model_LLIE
-model_type: RetiDiff_S1Model
+name: RestoRect_S1Model_LLIE_syn
+model_type: RestoRect_S1Model
 scale: 1
 num_gpu: auto  # auto: can infer from your visible devices automatically. official: 8 GPUs
 manual_seed: 0
@@ -10,8 +10,8 @@ datasets:
   train:
     name: TrainSet
     type: DeblurPairedDataset
-    dataroot_gt: /depot/natallah/data/shourya/Reti-Diff-main/datasets/LOL-v2/Real_captured/Train/Normal
-    dataroot_lq: /depot/natallah/data/shourya/Reti-Diff-main/datasets/LOL-v2/Real_captured/Train/Low
+    dataroot_gt: /depot/natallah/data/shourya/Reti-Diff-main/datasets/LOL-v2/Synthetic/Train/Normal
+    dataroot_lq: /depot/natallah/data/shourya/Reti-Diff-main/datasets/LOL-v2/Synthetic/Train/Low
     geometric_augs: true
 
     filename_tmpl: '{}'
@@ -37,14 +37,14 @@ datasets:
     name: ValSet
     type: DeblurPairedDataset
     dataset_type: ~
-    dataroot_gt: /depot/natallah/data/shourya/Reti-Diff-main/datasets/LOL-v2/Real_captured/Test/Normal
-    dataroot_lq: /depot/natallah/data/shourya/Reti-Diff-main/datasets/LOL-v2/Real_captured/Test/Low
+    dataroot_gt: /depot/natallah/data/shourya/Reti-Diff-main/datasets/LOL-v2/Synthetic/Test/Normal
+    dataroot_lq: /depot/natallah/data/shourya/Reti-Diff-main/datasets/LOL-v2/Synthetic/Test/Low
     io_backend:
       type: disk
 
 # network structures
 network_g:
-  type: RetiDiffS1
+  type: RestoRectS1
   n_encoder_res: 5
   inp_channels: 3
   out_channels: 3
@@ -54,7 +54,7 @@ network_g:
   heads: [ 1,2,4,8 ]
   ffn_expansion_factor: 2.66
   bias: False
-  LayerNorm_type: WithBias
+  LayerNorm_type: SpatialChannel
 
 pretrain_decomnet_high: /depot/natallah/data/shourya/Reti-Diff-main/pretrained_models/init_high.pth
 pretrain_decomnet_low: /depot/natallah/data/shourya/Reti-Diff-main/pretrained_models/init_low.pth
@@ -125,4 +125,4 @@ logger:
 # dist training settings
 dist_params:
   backend: nccl
-  port: 29500
+  port: 20200

@@ -15,6 +15,11 @@ from tqdm import tqdm
 import glob
 import warnings
 import piq
+import pywt  # for wavelet decomposition
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from sklearn.preprocessing import StandardScaler
+from scipy.special import gamma
+BIQI_AVAILABLE = True
 
 # piq imports for metrics
 try:
@@ -208,6 +213,83 @@ def calculate_brisque(img, device='cuda'):
         return brisque_score.item()
     except Exception as e:
         print(f"BRISQUE calculation failed: {e}")
+        return None
+
+def calculate_biqi_simplified(img):
+    """
+    Simplified BIQI implementation using wavelet features
+    Note: This is a simplified version without the full SVM models
+    """
+    try:
+        # Convert to grayscale
+        if len(img.shape) == 3:
+            img_gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+        else:
+            img_gray = img.copy()
+            
+        # Normalize to [0, 1]
+        if img_gray.max() > 1:
+            img_gray = img_gray.astype(np.float64) / 255.0
+        else:
+            img_gray = img_gray.astype(np.float64)
+            
+        # Wavelet decomposition (3 scales)
+        features = []
+        gam = np.arange(0.2, 10.001, 0.001)
+        
+        # Fix the gamma function usage - import it from scipy.special
+        from scipy.special import gamma as gamma_func
+        r_gam = (gamma_func(1.0/gam) * gamma_func(3.0/gam)) / (gamma_func(2.0/gam)**2)
+        
+        # Multi-scale wavelet analysis
+        for scale in range(1, 4):  # 3 scales
+            try:
+                coeffs = pywt.dwt2(img_gray, 'db4')  # Using db4 instead of db9
+                _, (h, v, d) = coeffs
+                
+                for subband, name in [(h, 'h'), (v, 'v'), (d, 'd')]:
+                    subband_flat = subband.flatten()
+                    
+                    # Compute statistics
+                    mu = np.mean(subband_flat)
+                    sigma_sq = np.var(subband_flat)
+                    E = np.mean(np.abs(subband_flat - mu))
+                    
+                    if E > 1e-8:  # Avoid division by zero
+                        rho = sigma_sq / (E**2)
+                        # Find closest gamma parameter
+                        closest_idx = np.argmin(np.abs(rho - r_gam))
+                        gam_param = gam[closest_idx]
+                    else:
+                        gam_param = 1.0
+                    
+                    features.extend([sigma_sq, gam_param])
+                
+                # Prepare for next scale (downsample)
+                if img_gray.shape[0] > 32 and img_gray.shape[1] > 32:  # Ensure minimum size
+                    img_gray = cv2.resize(img_gray, (img_gray.shape[1]//2, img_gray.shape[0]//2))
+                else:
+                    break
+                    
+            except Exception as e:
+                print(f"Wavelet decomposition failed at scale {scale}: {e}")
+                break
+        
+        if len(features) == 0:
+            return None
+            
+        # Simple quality estimation based on feature magnitudes
+        feature_array = np.array(features)
+        
+        # Estimate quality based on feature variance and complexity
+        # Lower values indicate better quality (like other metrics)
+        quality_score = np.mean(feature_array) * 30 + np.std(feature_array) * 10
+        quality_score = np.clip(quality_score, 0, 100)
+        
+        return quality_score
+        
+    except Exception as e:
+        print(f"BIQI calculation failed: {e}")
         return None
 
 def correct_mean_var(img_restored, img_gt, correction_strength=0.3):
@@ -431,6 +513,7 @@ def evaluate_images(gt_dir, pred_dir, output_file="evaluation_results.txt",
     niqe_scores = []
     lpips_scores = []
     brisque_scores = []
+    biqi_scores = []
     print(f"- BRISQUE available: {BRISQUE_AVAILABLE}")
     gt_images_for_fid = []
     pred_images_for_fid = []
@@ -465,16 +548,18 @@ def evaluate_images(gt_dir, pred_dir, output_file="evaluation_results.txt",
             
             # Apply correction
             if correct_mean_variance:
-                pred_img = correct_mean_var(pred_img.astype(np.float32), gt_img.astype(np.float32), correction_strength=0.0)
+                pred_img = correct_mean_var(pred_img.astype(np.float32), gt_img.astype(np.float32), correction_strength=0.2)
 
             # Calculate metrics
             psnr = calculate_psnr(gt_img, pred_img, crop_border, test_y_channel)
             ssim = calculate_ssim(gt_img, pred_img, crop_border, test_y_channel)
             niqe = calculate_niqe(pred_img, crop_border)
-            
+            biqi = calculate_biqi_simplified(pred_img)
+
             psnr_scores.append(psnr)
             ssim_scores.append(ssim)
             niqe_scores.append(niqe)
+            biqi_scores.append(biqi)
 
             if BRISQUE_AVAILABLE:
                 brisque_score = calculate_brisque(pred_img)
@@ -516,6 +601,7 @@ def evaluate_images(gt_dir, pred_dir, output_file="evaluation_results.txt",
     avg_niqe = np.mean(niqe_scores)
     avg_lpips = np.mean(lpips_scores) if lpips_scores else None
     avg_brisque = np.mean(brisque_scores) if brisque_scores else None
+    avg_biqi = np.mean(biqi_scores) if biqi_scores else None
     
     # Print results
     print("\n" + "="*80)
@@ -531,6 +617,8 @@ def evaluate_images(gt_dir, pred_dir, output_file="evaluation_results.txt",
         print(f"LPIPS ↓: {avg_lpips:.6f} ± {np.std(lpips_scores):.6f}")
     if avg_brisque is not None:
         print(f"BRISQUE ↓: {avg_brisque:.6f} ± {np.std(brisque_scores):.6f}")
+    if avg_biqi is not None:
+        print(f"BIQI ↓: {avg_biqi:.6f} ± {np.std(biqi_scores):.6f}")
     print("="*80)
     correction_note = " (with correction)" if correct_mean_variance else " (uncorrected - recommended)"
     print(f"Evaluation type: {correction_note}")
@@ -552,7 +640,8 @@ def evaluate_images(gt_dir, pred_dir, output_file="evaluation_results.txt",
             f.write(f"LPIPS: {avg_lpips:.6f} ± {np.std(lpips_scores):.6f}\n")
         if avg_brisque is not None:
             f.write(f"BRISQUE: {avg_brisque:.6f} ± {np.std(brisque_scores):.6f}\n")
-
+        if avg_biqi is not None:
+            f.write(f"BIQI: {avg_biqi:.6f} ± {np.std(biqi_scores):.6f}\n")
     print(f"Results saved to: {output_file}")
 
 

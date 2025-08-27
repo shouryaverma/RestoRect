@@ -575,7 +575,7 @@ class VelocityPredictor(nn.Module):
         return velocity
 
 @ARCH_REGISTRY.register()
-class RetiDiffS2(nn.Module):
+class RestoRectS2(nn.Module):
     def __init__(self,
                  n_encoder_res=6,
                  inp_channels=3,
@@ -591,7 +591,7 @@ class RetiDiffS2(nn.Module):
                  linear_start=0.1,
                  linear_end=0.99,
                  timesteps=4):
-        super(RetiDiffS2, self).__init__()
+        super(RestoRectS2, self).__init__()
 
         # Generator
         self.G = RGFormer(
