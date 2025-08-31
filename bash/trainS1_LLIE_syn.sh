@@ -28,7 +28,7 @@ export GPU=0,1,2,3
 cd /depot/natallah/data/shourya/Reti-Diff-main
 
 # Run the multi-GPU training pipeline
-CUDA_VISIBLE_DEVICES=0,1,2,3 python3 -m torch.distributed.launch --nproc_per_node=4 --use_env --master_port=4388 /depot/natallah/data/shourya/Reti-Diff-main/Reti-Diff/train.py -opt /depot/natallah/data/shourya/Reti-Diff-main/options/trainS1_LLIE_syn.yml --launcher pytorch
+CUDA_VISIBLE_DEVICES=0,1,2,3 python3 -m torch.distributed.launch --nproc_per_node=4 --use_env --master_port=4377 /depot/natallah/data/shourya/Reti-Diff-main/Reti-Diff/train.py -opt /depot/natallah/data/shourya/Reti-Diff-main/options/trainS1_LLIE_syn.yml --launcher pytorch
 
 ends=$(date +"%s")
 end=$(date +"%r, %m-%d-%Y")

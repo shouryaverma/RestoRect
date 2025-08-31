@@ -30,6 +30,18 @@ except ImportError:
     BRISQUE_AVAILABLE = False
     print("BRISQUE not available - PIQ library not found")
 
+# Add these imports
+try:
+    import skimage.color
+    from scipy import ndimage
+    from PIL import Image
+    import math
+    UNDERWATER_METRICS_AVAILABLE = True
+    print("UCIQE and UIQM metrics available")
+except ImportError:
+    UNDERWATER_METRICS_AVAILABLE = False
+    print("Underwater metrics not available - install scikit-image")
+
 # BasicSR imports for metrics
 try:
     from basicsr.metrics import calculate_psnr as basicsr_psnr, calculate_ssim as basicsr_ssim, calculate_niqe as basicsr_niqe
@@ -292,6 +304,187 @@ def calculate_biqi_simplified(img):
         print(f"BIQI calculation failed: {e}")
         return None
 
+def calculate_uciqe(img, c1=0.4680, c2=0.2745, c3=0.2576):
+    """Calculate UCIQE metric"""
+    if not UNDERWATER_METRICS_AVAILABLE:
+        return None
+        
+    try:
+        # Ensure RGB format and proper range
+        if img.max() > 1:
+            img_norm = img.astype(np.float64) / 255.0
+        else:
+            img_norm = img.astype(np.float64)
+            
+        # Convert to LAB color space
+        lab = skimage.color.rgb2lab(img_norm)
+        
+        # Extract L, a, b channels
+        l = lab[:,:,0]
+        
+        # 1st term - chroma variance
+        chroma = (lab[:,:,1]**2 + lab[:,:,2]**2)**0.5
+        uc = np.mean(chroma)
+        sc = (np.mean((chroma - uc)**2))**0.5
+        
+        # 2nd term - contrast of lightness
+        top = int(np.round(0.01 * l.shape[0] * l.shape[1]))
+        sl = np.sort(l, axis=None)
+        isl = sl[::-1]
+        conl = np.mean(isl[:top]) - np.mean(sl[:top])
+        
+        # 3rd term - average saturation
+        satur = []
+        chroma1 = chroma.flatten()
+        l1 = l.flatten()
+        for i in range(len(l1)):
+            if chroma1[i] == 0 or l1[i] == 0:
+                satur.append(0)
+            else:
+                satur.append(chroma1[i] / l1[i])
+        
+        us = np.mean(satur)
+        
+        # Calculate UCIQE
+        uciqe_score = c1 * sc + c2 * conl + c3 * us
+        return uciqe_score
+        
+    except Exception as e:
+        print(f"UCIQE calculation failed: {e}")
+        return None
+
+def calculate_uiqm(img):
+    """Calculate UIQM metric"""
+    if not UNDERWATER_METRICS_AVAILABLE:
+        return None
+        
+    try:
+        # Ensure proper format
+        if img.max() <= 1:
+            img_scaled = (img * 255).astype(np.float32)
+        else:
+            img_scaled = img.astype(np.float32)
+            
+        # UIQM coefficients
+        c1 = 0.0282
+        c2 = 0.2953  
+        c3 = 3.5753
+        
+        # Calculate components
+        uicm = _uicm(img_scaled)
+        uism = _uism(img_scaled)
+        uiconm = _uiconm(img_scaled, 10)
+        
+        # Combine components
+        uiqm_score = (c1 * uicm) + (c2 * uism) + (c3 * uiconm)
+        return uiqm_score
+        
+    except Exception as e:
+        print(f"UIQM calculation failed: {e}")
+        return None
+
+# Helper functions for UIQM (copy the exact functions from your document)
+def mu_a(x, alpha_L=0.1, alpha_R=0.1):
+    """Calculates the asymetric alpha-trimmed mean"""
+    x = sorted(x)
+    K = len(x)
+    T_a_L = math.ceil(alpha_L*K)
+    T_a_R = math.floor(alpha_R*K)
+    weight = (1/(K-T_a_L-T_a_R))
+    s = int(T_a_L+1)
+    e = int(K-T_a_R)
+    val = sum(x[s:e])
+    val = weight*val
+    return val
+
+def s_a(x, mu):
+    val = 0
+    for pixel in x:
+        val += math.pow((pixel-mu), 2)
+    return val/len(x)
+
+def _uicm(x):
+    R = x[:,:,0].flatten()
+    G = x[:,:,1].flatten()
+    B = x[:,:,2].flatten()
+    RG = R-G
+    YB = ((R+G)/2)-B
+    mu_a_RG = mu_a(RG)
+    mu_a_YB = mu_a(YB)
+    s_a_RG = s_a(RG, mu_a_RG)
+    s_a_YB = s_a(YB, mu_a_YB)
+    l = math.sqrt( (math.pow(mu_a_RG,2)+math.pow(mu_a_YB,2)) )
+    r = math.sqrt(s_a_RG+s_a_YB)
+    return (-0.0268*l)+(0.1586*r)
+
+def sobel(x):
+    dx = ndimage.sobel(x,0)
+    dy = ndimage.sobel(x,1)
+    mag = np.hypot(dx, dy)
+    mag *= 255.0 / np.max(mag) 
+    return mag
+
+def eme(x, window_size):
+    """Enhancement measure estimation"""
+    k1 = int(x.shape[1]/window_size)
+    k2 = int(x.shape[0]/window_size)
+    w = 2./(k1*k2)
+    blocksize_x = window_size
+    blocksize_y = window_size
+    x = x[:blocksize_y*k2, :blocksize_x*k1]
+    val = 0
+    for l in range(k1):
+        for k in range(k2):
+            block = x[k*window_size:window_size*(k+1), l*window_size:window_size*(l+1)]
+            max_ = np.max(block)
+            min_ = np.min(block)
+            if min_ == 0.0: val += 0
+            elif max_ == 0.0: val += 0
+            else: val += math.log(max_/min_)
+    return w*val
+
+def _uism(x):
+    """Underwater Image Sharpness Measure"""
+    R = x[:,:,0]
+    G = x[:,:,1]
+    B = x[:,:,2]
+    Rs = sobel(R)
+    Gs = sobel(G)
+    Bs = sobel(B)
+    R_edge_map = np.multiply(Rs, R)
+    G_edge_map = np.multiply(Gs, G)
+    B_edge_map = np.multiply(Bs, B)
+    r_eme = eme(R_edge_map, 10)
+    g_eme = eme(G_edge_map, 10)
+    b_eme = eme(B_edge_map, 10)
+    lambda_r = 0.299
+    lambda_g = 0.587
+    lambda_b = 0.144
+    return (lambda_r*r_eme) + (lambda_g*g_eme) + (lambda_b*b_eme)
+
+def _uiconm(x, window_size):
+    """Underwater image contrast measure"""
+    k1 = int(x.shape[1]/window_size)
+    k2 = int(x.shape[0]/window_size)
+    w = -1./(k1*k2)
+    blocksize_x = window_size
+    blocksize_y = window_size
+    x = x[:blocksize_y*k2, :blocksize_x*k1]
+    alpha = 1
+    val = 0
+    for l in range(k1):
+        for k in range(k2):
+            block = x[k*window_size:window_size*(k+1), l*window_size:window_size*(l+1), :]
+            max_ = np.max(block)
+            min_ = np.min(block)
+            top = max_-min_
+            bot = max_+min_
+            if math.isnan(top) or math.isnan(bot) or bot == 0.0 or top == 0.0: 
+                val += 0.0
+            else: 
+                val += alpha*math.pow((top/bot),alpha) * math.log(top/bot)
+    return w*val
+
 def correct_mean_var(img_restored, img_gt, correction_strength=0.3):
     """
     Mean-variance correction with adjustable strength
@@ -514,6 +707,8 @@ def evaluate_images(gt_dir, pred_dir, output_file="evaluation_results.txt",
     lpips_scores = []
     brisque_scores = []
     biqi_scores = []
+    uciqe_scores = []
+    uiqm_scores = []
     print(f"- BRISQUE available: {BRISQUE_AVAILABLE}")
     gt_images_for_fid = []
     pred_images_for_fid = []
@@ -565,7 +760,14 @@ def evaluate_images(gt_dir, pred_dir, output_file="evaluation_results.txt",
                 brisque_score = calculate_brisque(pred_img)
                 if brisque_score is not None:
                     brisque_scores.append(brisque_score)
-            
+            if UNDERWATER_METRICS_AVAILABLE:
+                uciqe_score = calculate_uciqe(pred_img)
+                if uciqe_score is not None:
+                    uciqe_scores.append(uciqe_score)
+                uiqm_score = calculate_uiqm(pred_img)
+                if uiqm_score is not None:
+                    uiqm_scores.append(uiqm_score)
+
             # Calculate LPIPS
             if lpips_model is not None:
                 lpips_score = calculate_lpips(gt_img, pred_img, lpips_model, device)
@@ -602,6 +804,8 @@ def evaluate_images(gt_dir, pred_dir, output_file="evaluation_results.txt",
     avg_lpips = np.mean(lpips_scores) if lpips_scores else None
     avg_brisque = np.mean(brisque_scores) if brisque_scores else None
     avg_biqi = np.mean(biqi_scores) if biqi_scores else None
+    avg_uciqe = np.mean(uciqe_scores) if uciqe_scores else None
+    avg_uiqm = np.mean(uiqm_scores) if uiqm_scores else None
     
     # Print results
     print("\n" + "="*80)
@@ -619,6 +823,10 @@ def evaluate_images(gt_dir, pred_dir, output_file="evaluation_results.txt",
         print(f"BRISQUE ↓: {avg_brisque:.6f} ± {np.std(brisque_scores):.6f}")
     if avg_biqi is not None:
         print(f"BIQI ↓: {avg_biqi:.6f} ± {np.std(biqi_scores):.6f}")
+    if avg_uciqe is not None:
+        print(f"UCIQE ↑: {avg_uciqe:.6f} ± {np.std(uciqe_scores):.6f}")
+    if avg_uiqm is not None:
+        print(f"UIQM ↑: {avg_uiqm:.6f} ± {np.std(uiqm_scores):.6f}")
     print("="*80)
     correction_note = " (with correction)" if correct_mean_variance else " (uncorrected - recommended)"
     print(f"Evaluation type: {correction_note}")
@@ -642,6 +850,10 @@ def evaluate_images(gt_dir, pred_dir, output_file="evaluation_results.txt",
             f.write(f"BRISQUE: {avg_brisque:.6f} ± {np.std(brisque_scores):.6f}\n")
         if avg_biqi is not None:
             f.write(f"BIQI: {avg_biqi:.6f} ± {np.std(biqi_scores):.6f}\n")
+        if avg_uciqe is not None:
+            f.write(f"UCIQE: {avg_uciqe:.6f} ± {np.std(uciqe_scores):.6f}\n")
+        if avg_uiqm is not None:
+            f.write(f"UIQM: {avg_uiqm:.6f} ± {np.std(uiqm_scores):.6f}\n")
     print(f"Results saved to: {output_file}")
 
 
@@ -670,8 +882,8 @@ def main():
 
 if __name__ == "__main__":
     # Example usage
-    gt_dir = "/depot/natallah/data/shourya/Reti-Diff-main/datasets/LOL-v2/Real_captured/Test/Normal"
-    pred_dir = "/depot/natallah/data/shourya/Reti-Diff-main/results/LLIE_Real/visualization/Testset"
+    gt_dir = "/depot/natallah/data/shourya/Reti-Diff-main/datasets/LOL-v2/Synthetic/Test/Normal"
+    pred_dir = "/depot/natallah/data/shourya/Reti-Diff-main/results/LLIE_Syn_2/visualization/Testset"
     
     print("Starting comprehensive evaluation...")
     evaluate_images(gt_dir, pred_dir)

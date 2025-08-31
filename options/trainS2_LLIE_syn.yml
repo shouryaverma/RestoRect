@@ -65,7 +65,7 @@ network_g:
 
 # network structures
 network_S1:
-  type: RestoRectS2
+  type: RestoRectS1
   n_encoder_res: 5
   inp_channels: 3
   out_channels: 3
@@ -79,8 +79,8 @@ network_S1:
 
 # path
 path:
-  pretrain_network_g:
-  pretrain_network_S1:
+  pretrain_network_g: /depot/natallah/data/shourya/Reti-Diff-main/experiments/S1Model_LLIEsyn_2_all/models/net_g_75000.pth
+  pretrain_network_S1: /depot/natallah/data/shourya/Reti-Diff-main/experiments/S1Model_LLIEsyn_2_all/models/net_g_75000.pth
   param_key_g: params_ema
   strict_load_g: False
   resume_state: ~
@@ -132,12 +132,28 @@ train:
     loss_weight: 1.0
     reduction: mean
 
+  # FLEX Loss Configuration - Add this section
+  flex_opt:
+    loss_weight: 0.5  # Higher than default 0.1 for stronger perceptual guidance
+    snr_threshold: 0.4  # Apply FLEX when timestep < 0.4 (high SNR regime)
+    outlier_threshold: 2.5  # Threshold for outlier detection
+    kernel_size: 3  # Kernel size for morphological operations
+    apply_cross_norm: true  # Enable cross-normalization
+    apply_outlier_detection: true  # Enable outlier detection
+    # Target layers - these should match architecture
+    target_layers:
+      - 'decoder_level3'  # 192 channels, 1/4 resolution
+      - 'decoder_level2'  # 96 channels, 1/2 resolution  
+      - 'decoder_level1'  # 96 channels, full resolution
+    # Layer weights - auto-computed if not specified
+    layer_weights: [2.0, 1.41, 1.0]  # Depth-specific weights based on resolution
+
 # Uncomment these for validation
 # validation settings
 val:
   window_size: 8
   val_freq: !!float 5e3
-  save_img: True
+  save_img: False
 
   metrics:
     psnr: # metric name

@@ -64,8 +64,15 @@ class SpatialChannelLayerNorm(nn.Module):
         mean = x.view(b, -1).mean(dim=1, keepdim=True).view(b, 1, 1, 1)
         var = x.view(b, -1).var(dim=1, keepdim=True, unbiased=False).view(b, 1, 1, 1)
         
+        # Clamp variance to prevent numerical instability
+        var_clamped = torch.clamp(var, min=self.eps)
+        
         # Normalize
-        x_normalized = (x - mean) / torch.sqrt(var + self.eps)
+        x_normalized = (x - mean) / torch.sqrt(var_clamped + self.eps)
+        
+        # Check for NaN and clamp if necessary
+        x_normalized = torch.where(torch.isnan(x_normalized), torch.zeros_like(x_normalized), x_normalized)
+        x_normalized = torch.clamp(x_normalized, min=-10.0, max=10.0)
         
         # Apply learned scaling
         return x_normalized * self.weight.view(1, c, 1, 1)

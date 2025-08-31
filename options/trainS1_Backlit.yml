@@ -54,7 +54,7 @@ network_g:
   heads: [ 1,2,4,8 ]
   ffn_expansion_factor: 2.66
   bias: False
-  LayerNorm_type: WithBias
+  LayerNorm_type: SpatialChannel
 
 pretrain_decomnet_low: pretrained_models/init_low.pth
 pretrain_decomnet_high: pretrained_models/init_high.pth

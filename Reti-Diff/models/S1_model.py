@@ -27,12 +27,19 @@ class AnisotropicDiffusion(nn.Module):
         B, C, H, W = image.shape
         diffused = torch.zeros_like(image)
         
+        # Clamp sensitivity parameter to prevent numerical instability
+        s_clamped = torch.clamp(self.s, min=0.01, max=1.0)
+        
         for c in range(C):
             img_c = image[:, c:c+1, :, :]
             grad_x = F.conv2d(img_c, sobel_x, padding=1)
             grad_y = F.conv2d(img_c, sobel_y, padding=1)
             grad_mag = torch.sqrt(grad_x**2 + grad_y**2 + 1e-8)
-            diffusion_coeff = torch.exp(-(grad_mag / self.s)**2)
+            
+            # Prevent explosion by clamping the exponent
+            exponent = torch.clamp(-(grad_mag / s_clamped)**2, min=-10.0, max=0.0)
+            diffusion_coeff = torch.exp(exponent)
+            
             diffused_x = diffusion_coeff * grad_x
             diffused_y = diffusion_coeff * grad_y
             kernel = torch.ones(1, 1, 3, 3, device=image.device) / 9
@@ -53,24 +60,29 @@ class GradientAwareWeighting(nn.Module):
 class PolarizedHVIColorSpace(nn.Module):
     def __init__(self, learnable_params=True):
         super().__init__()
-        self.eps = 1e-8
+        self.eps = 1e-6
         if learnable_params:
+            # Constrain k parameter to reasonable range
             self.k = nn.Parameter(torch.tensor(1.0))
         else:
             self.k = 1.0
     
     def rgb_to_hvi(self, rgb_img):
         """Polarized transformation eliminates red discontinuity"""
+        # Clamp RGB values to valid range
+        rgb_img = torch.clamp(rgb_img, 0.0, 1.0)
+        
         I_max = torch.max(rgb_img, dim=1, keepdim=True)[0]
         hsv = self.rgb_to_hsv(rgb_img)
         H, S, V = hsv[:, 0:1], hsv[:, 1:2], hsv[:, 2:3]
         
         # Polarized coordinates (eliminates red discontinuity)
-        h_polar = torch.cos(3.14159 * H / 3)  # Orthogonal horizontal
-        v_polar = torch.sin(3.14159 * H / 3)  # Orthogonal vertical
+        h_polar = torch.cos(3.14159 * H / 3)
+        v_polar = torch.sin(3.14159 * H / 3)
         
-        # Adaptive intensity collapse
-        C_k = self.k * torch.sin(3.14159 * I_max / 2) + self.eps
+        # Adaptive intensity collapse with clamping
+        k_clamped = torch.clamp(self.k, min=0.1, max=5.0) if isinstance(self.k, nn.Parameter) else self.k
+        C_k = k_clamped * torch.sin(3.14159 * I_max / 2) + self.eps
         
         # Final HV maps
         H_hv = C_k * S * h_polar
@@ -79,26 +91,33 @@ class PolarizedHVIColorSpace(nn.Module):
         return torch.cat([H_hv, V_hv, I_max], dim=1)
     
     def rgb_to_hsv(self, rgb):
-        """Standard RGB to HSV conversion"""
+        """Standard RGB to HSV conversion with numerical stability"""
         max_val, max_idx = torch.max(rgb, dim=1, keepdim=True)
         min_val = torch.min(rgb, dim=1, keepdim=True)[0]
         diff = max_val - min_val
         
         hue = torch.zeros_like(max_val)
+        
+        # Use epsilon to prevent division by zero
+        safe_diff = torch.clamp(diff, min=1e-6)
+        
         # Red maximum
-        mask = (max_idx == 0) & (diff > 0)
-        hue[mask] = (rgb[:, 1:2] - rgb[:, 2:3])[mask] / diff[mask]
+        mask = (max_idx == 0) & (diff > 1e-6)
+        hue[mask] = (rgb[:, 1:2] - rgb[:, 2:3])[mask] / safe_diff[mask]
         # Green maximum
-        mask = (max_idx == 1) & (diff > 0)
-        hue[mask] = 2.0 + (rgb[:, 2:3] - rgb[:, 0:1])[mask] / diff[mask]
+        mask = (max_idx == 1) & (diff > 1e-6)
+        hue[mask] = 2.0 + (rgb[:, 2:3] - rgb[:, 0:1])[mask] / safe_diff[mask]
         # Blue maximum
-        mask = (max_idx == 2) & (diff > 0)
-        hue[mask] = 4.0 + (rgb[:, 0:1] - rgb[:, 1:2])[mask] / diff[mask]
+        mask = (max_idx == 2) & (diff > 1e-6)
+        hue[mask] = 4.0 + (rgb[:, 0:1] - rgb[:, 1:2])[mask] / safe_diff[mask]
         
         hue = hue / 6.0
         hue[hue < 0] += 1.0
+        hue = torch.clamp(hue, 0.0, 1.0)
         
-        saturation = torch.where(max_val > 0, diff / max_val, torch.zeros_like(max_val))
+        # Prevent division by zero in saturation calculation
+        safe_max = torch.clamp(max_val, min=1e-6)
+        saturation = torch.where(max_val > 1e-6, diff / safe_max, torch.zeros_like(max_val))
         value = max_val
         
         return torch.cat([hue, saturation, value], dim=1)
@@ -110,14 +129,28 @@ class PolarizedHVIColorLoss(nn.Module):
         self.weight = weight
         
     def forward(self, pred, gt):
+        # Check for NaN inputs
+        if torch.isnan(pred).any() or torch.isnan(gt).any():
+            return torch.tensor(0.0, device=pred.device, requires_grad=True)
+            
         pred_hvi = self.hvi_transform.rgb_to_hvi(pred)
         gt_hvi = self.hvi_transform.rgb_to_hvi(gt)
         
-        h_loss = F.l1_loss(pred_hvi[:, 0:1], gt_hvi[:, 0:1])  # Horizontal
-        v_loss = F.l1_loss(pred_hvi[:, 1:2], gt_hvi[:, 1:2])  # Vertical
-        i_loss = F.l1_loss(pred_hvi[:, 2:3], gt_hvi[:, 2:3])  # Intensity
+        # Check for NaN in HVI conversion
+        if torch.isnan(pred_hvi).any() or torch.isnan(gt_hvi).any():
+            return torch.tensor(0.0, device=pred.device, requires_grad=True)
         
-        return self.weight * (h_loss + v_loss + i_loss)
+        h_loss = F.l1_loss(pred_hvi[:, 0:1], gt_hvi[:, 0:1])
+        v_loss = F.l1_loss(pred_hvi[:, 1:2], gt_hvi[:, 1:2])
+        i_loss = F.l1_loss(pred_hvi[:, 2:3], gt_hvi[:, 2:3])
+        
+        total_loss = h_loss + v_loss + i_loss
+        
+        # Additional safety check
+        if torch.isnan(total_loss):
+            return torch.tensor(0.0, device=pred.device, requires_grad=True)
+            
+        return self.weight * total_loss
         
 class Mixing_Augment:
     def __init__(self, mixup_beta, use_identity, device):

@@ -143,7 +143,7 @@ train:
 val:
   window_size: 8
   val_freq: !!float 5e3
-  save_img: True
+  save_img: False
   metrics:
     psnr: # metric name
       type: calculate_psnr
