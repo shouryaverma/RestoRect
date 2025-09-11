@@ -1,5 +1,5 @@
 # general settings
-name: UIE_UIEB
+name: UIE_UIEB_time
 model_type: S2_Interface_Model
 scale: 1
 num_gpu: auto  # auto: can infer from your visible devices automatically. official: 4 GPUs
@@ -12,8 +12,8 @@ datasets:
   val_1:
     name: Testset
     type: DeblurPairedDataset
-    dataroot_gt: # put your own path here
-    dataroot_lq: # put your own path here
+    dataroot_gt: /depot/natallah/data/shourya/Reti-Diff-main/datasets/UIEB/gt_test
+    dataroot_lq: /depot/natallah/data/shourya/Reti-Diff-main/datasets/UIEB/input_test
     dataset_type: chaos
     gt_size: 256
     io_backend:
@@ -22,7 +22,7 @@ datasets:
 
 # network structures
 network_g:
-  type: RetiDiffS2_Interface
+  type: RestoRectS2
   n_encoder_res: 5
   inp_channels: 3
   out_channels: 3
@@ -42,11 +42,11 @@ network_g:
 
 # path
 path:
-  pretrain_network_g: ./pretrained_models/uie_uieb.pth
+  pretrain_network_g: /depot/natallah/data/shourya/Reti-Diff-main/experiments/RestoRect_S2Model_UIE_UIEB/models/net_g_215000.pth
   param_key_g: params_ema
   strict_load_g: False
 
-pretrain_decomnet_low: pretrained_models/retinex_decomnet.pth
+pretrain_decomnet_low: /depot/natallah/data/shourya/Reti-Diff-main/pretrained_models/retinex_decomnet.pth
 
 
 

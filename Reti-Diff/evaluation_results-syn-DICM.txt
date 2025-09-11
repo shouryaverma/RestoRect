@@ -1,0 +1,15 @@
+Image Quality Evaluation Results
+================================================================================
+GT Directory: /depot/natallah/data/shourya/Reti-Diff-main/datasets/IDIR/DICM
+Predicted Directory: /depot/natallah/data/shourya/Reti-Diff-main/results/LLIE_syn_DICM/visualization/Testset
+Number of images: 44
+
+PSNR: 20.640787 ± 3.960311
+SSIM: 0.835552 ± 0.093488
+FID:  78.173087
+NIQE: 6.352301 ± 1.428709
+LPIPS: 0.159434 ± 0.099397
+BRISQUE: 16.794675 ± 9.578797
+BIQI: 10.230719 ± 2.312420
+UCIQE: 0.566991 ± 0.053362
+UIQM: 2.183491 ± 0.537010

@@ -1,13 +1,10 @@
 #!/bin/bash
-
-# CUDA_VISIBLE_DEVICES=0 python3  Reti-Diff/test.py -opt options/test_LLIE_syn.yml
-
 #SBATCH -A pccr
 #SBATCH -N 1
 #SBATCH -p ai
 #SBATCH -q preemptible
-#SBATCH -t 2:00:00
-#SBATCH --gpus-per-node=1
+#SBATCH -t 48:00:00
+#SBATCH --gpus-per-node=4
 #SBATCH --cpus-per-gpu=14
 #SBATCH --mail-user=verma198@purdue.edu
 #SBATCH --mail-type=FAIL
@@ -21,13 +18,13 @@ conda activate /depot/natallah/data/shourya/Reti-Diff_env
 export CUDA_LAUNCH_BLOCKING=1
 
 # Set GPU environment variable for multi-GPU training
-export GPU=0
+export GPU=0,1,2,3
 
 # Change to your project directory
 cd /depot/natallah/data/shourya/Reti-Diff-main
 
 # Run the multi-GPU training pipeline
-CUDA_VISIBLE_DEVICES=0 python3 /depot/natallah/data/shourya/Reti-Diff-main/Reti-Diff/test.py -opt /depot/natallah/data/shourya/Reti-Diff-main/options/test_LLIE_v1.yml
+CUDA_VISIBLE_DEVICES=0,1,2,3 python3 -m torch.distributed.launch --nproc_per_node=4 --use_env --master_port=4488 /depot/natallah/data/shourya/Reti-Diff-main/Reti-Diff/train.py -opt /depot/natallah/data/shourya/Reti-Diff-main/options/trainS1_FIVEK.yml --launcher pytorch
 
 ends=$(date +"%s")
 end=$(date +"%r, %m-%d-%Y")

@@ -96,6 +96,33 @@ class LayerNorm(nn.Module):
             return to_4d(self.body(to_3d(x)), h, w)
 
 
+# class FeedForward(nn.Module):
+#     def __init__(self, dim, ffn_expansion_factor, bias):
+#         super(FeedForward, self).__init__()
+
+#         hidden_features = int(dim * ffn_expansion_factor)
+
+#         self.project_in = nn.Conv2d(dim, hidden_features * 2, kernel_size=1, bias=bias)
+
+#         self.dwconv = nn.Conv2d(hidden_features * 2, hidden_features * 2, kernel_size=3, stride=1, padding=1,
+#                                 groups=hidden_features * 2, bias=bias)
+
+#         self.project_out = nn.Conv2d(hidden_features, dim, kernel_size=1, bias=bias)
+
+#         self.kernel = nn.Sequential(
+#             nn.Linear(256, dim, bias=False),
+#         )
+
+#     def forward(self, x, k_v):
+#         b, c, h, w = x.shape
+#         k_v = self.kernel(k_v).view(-1, c, 1, 1)
+#         x = x * k_v + x
+#         x = self.project_in(x)
+#         x1, x2 = self.dwconv(x).chunk(2, dim=1)
+#         x = F.gelu(x1) * x2
+#         x = self.project_out(x)
+#         return x
+
 class FeedForward(nn.Module):
     def __init__(self, dim, ffn_expansion_factor, bias):
         super(FeedForward, self).__init__()
@@ -115,6 +142,12 @@ class FeedForward(nn.Module):
 
     def forward(self, x, k_v):
         b, c, h, w = x.shape
+        
+        # Memory check - if tensor would be too large, process in chunks
+        total_elements = b * c * h * w
+        if total_elements > 2**30:  # Threshold for 32-bit indexing
+            return self._chunked_forward(x, k_v)
+        
         k_v = self.kernel(k_v).view(-1, c, 1, 1)
         x = x * k_v + x
         x = self.project_in(x)
@@ -122,7 +155,82 @@ class FeedForward(nn.Module):
         x = F.gelu(x1) * x2
         x = self.project_out(x)
         return x
+    
+    def _chunked_forward(self, x, k_v):
+        """Process large tensors in spatial chunks to avoid memory issues"""
+        b, c, h, w = x.shape
+        
+        # Determine chunk size based on available memory
+        chunk_size = min(64, h, w)  # Process 64x64 patches maximum
+        
+        k_v = self.kernel(k_v).view(-1, c, 1, 1)
+        x = x * k_v + x
+        
+        # Process in overlapping chunks
+        output = torch.zeros_like(x)
+        for i in range(0, h, chunk_size//2):
+            for j in range(0, w, chunk_size//2):
+                h_end = min(i + chunk_size, h)
+                w_end = min(j + chunk_size, w)
+                
+                chunk = x[:, :, i:h_end, j:w_end]
+                chunk = self.project_in(chunk)
+                x1, x2 = self.dwconv(chunk).chunk(2, dim=1)
+                chunk = F.gelu(x1) * x2
+                chunk = self.project_out(chunk)
+                
+                # Blend overlapping regions
+                if i == 0 and j == 0:
+                    output[:, :, i:h_end, j:w_end] = chunk
+                else:
+                    # Simple average blending for overlapping regions
+                    output[:, :, i:h_end, j:w_end] = (output[:, :, i:h_end, j:w_end] + chunk) / 2
+        
+        return output
 
+# class Attention(nn.Module):
+#     def __init__(self, dim, num_heads, bias):
+#         super(Attention, self).__init__()
+#         self.num_heads = num_heads
+#         self.temperature = nn.Parameter(torch.ones(num_heads, 1, 1))
+#         self.kernel = nn.Sequential(
+#             nn.Linear(256, dim, bias=False),
+#         )
+#         self.qkv = nn.Conv2d(dim, dim * 3, kernel_size=1, bias=bias)
+#         self.qkv_dwconv = nn.Conv2d(dim * 3, dim * 3, kernel_size=3, stride=1, padding=1, groups=dim * 3, bias=bias)
+#         self.project_out = nn.Conv2d(dim, dim, kernel_size=1, bias=bias)
+        
+#         # Add QK layer normalization
+#         self.q_norm = nn.LayerNorm(dim // num_heads)
+#         self.k_norm = nn.LayerNorm(dim // num_heads)
+
+#     def forward(self, x, k_v):
+#         b, c, h, w = x.shape
+#         k_v = self.kernel(k_v).view(-1, c, 1, 1)
+#         # k_v1, k_v2 = k_v.chunk(2, dim=1)
+#         x = x * k_v + x
+
+#         qkv = self.qkv_dwconv(self.qkv(x))  # b, 3c, h, w
+#         q, k, v = qkv.chunk(3, dim=1)  # b, c, h, w
+
+#         q = rearrange(q, 'b (head c) h w -> b head c (h w)', head=self.num_heads)
+#         k = rearrange(k, 'b (head c) h w -> b head c (h w)', head=self.num_heads)
+#         v = rearrange(v, 'b (head c) h w -> b head c (h w)', head=self.num_heads)
+
+#         # Apply layer normalization to Q and K
+#         q = self.q_norm(q.transpose(-2, -1)).transpose(-2, -1)
+#         k = self.k_norm(k.transpose(-2, -1)).transpose(-2, -1)
+
+#         q = torch.nn.functional.normalize(q, dim=-1)
+#         k = torch.nn.functional.normalize(k, dim=-1)
+
+#         attn = (q @ k.transpose(-2, -1)) * self.temperature
+#         attn = attn.softmax(dim=-1)
+
+#         out = (attn @ v)
+#         out = rearrange(out, 'b head c (h w) -> b (head c) h w', head=self.num_heads, h=h, w=w)
+#         out = self.project_out(out)
+#         return out
 
 class Attention(nn.Module):
     def __init__(self, dim, num_heads, bias):
@@ -142,12 +250,17 @@ class Attention(nn.Module):
 
     def forward(self, x, k_v):
         b, c, h, w = x.shape
+        
+        # Memory check
+        total_elements = b * c * h * w
+        if total_elements > 2**30:
+            return self._chunked_forward(x, k_v)
+            
         k_v = self.kernel(k_v).view(-1, c, 1, 1)
-        # k_v1, k_v2 = k_v.chunk(2, dim=1)
         x = x * k_v + x
 
-        qkv = self.qkv_dwconv(self.qkv(x))  # b, 3c, h, w
-        q, k, v = qkv.chunk(3, dim=1)  # b, c, h, w
+        qkv = self.qkv_dwconv(self.qkv(x))
+        q, k, v = qkv.chunk(3, dim=1)
 
         q = rearrange(q, 'b (head c) h w -> b head c (h w)', head=self.num_heads)
         k = rearrange(k, 'b (head c) h w -> b head c (h w)', head=self.num_heads)
@@ -167,7 +280,47 @@ class Attention(nn.Module):
         out = rearrange(out, 'b head c (h w) -> b (head c) h w', head=self.num_heads, h=h, w=w)
         out = self.project_out(out)
         return out
+    
+    def _chunked_forward(self, x, k_v):
+        """Process large tensors in chunks"""
+        b, c, h, w = x.shape
+        chunk_size = min(32, h, w)  # Smaller chunks for attention
+        
+        k_v = self.kernel(k_v).view(-1, c, 1, 1)
+        x = x * k_v + x
+        
+        output = torch.zeros_like(x)
+        for i in range(0, h, chunk_size):
+            for j in range(0, w, chunk_size):
+                h_end = min(i + chunk_size, h)
+                w_end = min(j + chunk_size, w)
+                
+                chunk = x[:, :, i:h_end, j:w_end]
+                
+                qkv = self.qkv_dwconv(self.qkv(chunk))
+                q, k, v = qkv.chunk(3, dim=1)
+                
+                _, _, ch, cw = q.shape
+                q = rearrange(q, 'b (head c) h w -> b head c (h w)', head=self.num_heads)
+                k = rearrange(k, 'b (head c) h w -> b head c (h w)', head=self.num_heads)
+                v = rearrange(v, 'b (head c) h w -> b head c (h w)', head=self.num_heads)
 
+                q = self.q_norm(q.transpose(-2, -1)).transpose(-2, -1)
+                k = self.k_norm(k.transpose(-2, -1)).transpose(-2, -1)
+
+                q = torch.nn.functional.normalize(q, dim=-1)
+                k = torch.nn.functional.normalize(k, dim=-1)
+
+                attn = (q @ k.transpose(-2, -1)) * self.temperature
+                attn = attn.softmax(dim=-1)
+
+                out = (attn @ v)
+                out = rearrange(out, 'b head c (h w) -> b (head c) h w', head=self.num_heads, h=ch, w=cw)
+                out = self.project_out(out)
+                
+                output[:, :, i:h_end, j:w_end] = out
+                
+        return output
 
 class Rttention(nn.Module):
     def __init__(self, dim, num_heads, bias):

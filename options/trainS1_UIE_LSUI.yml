@@ -1,6 +1,6 @@
 # general settings
-name: RetiDiff_S1Model_UIE
-model_type: RetiDiff_S1Model
+name: RestoRect_S1Model_UIE_LSUI
+model_type: RestoRect_S1Model
 scale: 1
 num_gpu: auto  # auto: can infer from your visible devices automatically. official: 8 GPUs
 manual_seed: 0
@@ -10,8 +10,8 @@ datasets:
   train:
     name: TrainSet
     type: DeblurPairedDataset
-    dataroot_gt: # put your own path here
-    dataroot_lq: # put your own path here
+    dataroot_gt: /depot/natallah/data/shourya/Reti-Diff-main/datasets/LSUI/gt_train
+    dataroot_lq: /depot/natallah/data/shourya/Reti-Diff-main/datasets/LSUI/input_train
     geometric_augs: true
 
     filename_tmpl: '{}'
@@ -38,14 +38,14 @@ datasets:
     type: DeblurPairedDataset
     dataset_type: chaos
     gt_size: 256   # Max patch size for progressive training
-    dataroot_gt: /data/fcy/Datasets/Underwater/UIEB/test/hq
-    dataroot_lq: /data/fcy/Datasets/Underwater/UIEB/test/lq
+    dataroot_gt: /depot/natallah/data/shourya/Reti-Diff-main/datasets/LSUI/gt_test
+    dataroot_lq: /depot/natallah/data/shourya/Reti-Diff-main/datasets/LSUI/input_test
     io_backend:
       type: disk
 
 # network structures
 network_g:
-  type: RetiDiffS1
+  type: RestoRectS1
   n_encoder_res: 5
   inp_channels: 3
   out_channels: 3
@@ -55,10 +55,10 @@ network_g:
   heads: [ 1,2,4,8 ]
   ffn_expansion_factor: 2.66
   bias: False
-  LayerNorm_type: WithBias
+  LayerNorm_type: SpatialChannel
 
-pretrain_decomnet_low: pretrained_models/init_low.pth
-pretrain_decomnet_high: pretrained_models/init_high.pth
+pretrain_decomnet_high: /depot/natallah/data/shourya/Reti-Diff-main/pretrained_models/init_high.pth
+pretrain_decomnet_low: /depot/natallah/data/shourya/Reti-Diff-main/pretrained_models/init_low.pth
 
 # path
 path:

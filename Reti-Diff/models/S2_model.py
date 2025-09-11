@@ -645,8 +645,10 @@ class RestoRect_S2Model(SRModel):
                 rex_diffusion = self.net_g.rex_diffusion
                 img_diffusion = self.net_g.img_diffusion
             
-            _, pred_IPR_list_rex = rex_diffusion(self.retinex_lq, S1_IPR_rex[0])
-            _, pred_IPR_list_img = img_diffusion(self.lq, S1_IPR_img[0])
+            # _, pred_IPR_list_rex = rex_diffusion(self.retinex_lq, S1_IPR_rex[0])
+            # _, pred_IPR_list_img = img_diffusion(self.lq, S1_IPR_img[0])
+            _, pred_IPR_list_rex = rex_diffusion.inference_generation(self.retinex_lq)
+            _, pred_IPR_list_img = img_diffusion.inference_generation(self.lq)
 
             i_rex = len(pred_IPR_list_rex) - 1
             i_img = len(pred_IPR_list_img) - 1

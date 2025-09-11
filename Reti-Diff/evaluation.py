@@ -305,50 +305,50 @@ def calculate_biqi_simplified(img):
         return None
 
 def calculate_uciqe(img, c1=0.4680, c2=0.2745, c3=0.2576):
-    """Calculate UCIQE metric"""
+    """Calculate UCIQE metric based on MATLAB reference implementation"""
     if not UNDERWATER_METRICS_AVAILABLE:
         return None
-        
+       
     try:
-        # Ensure RGB format and proper range
+        # Convert to float and ensure [0,1] range
         if img.max() > 1:
             img_norm = img.astype(np.float64) / 255.0
         else:
             img_norm = img.astype(np.float64)
-            
+       
         # Convert to LAB color space
         lab = skimage.color.rgb2lab(img_norm)
-        
-        # Extract L, a, b channels
-        l = lab[:,:,0]
-        
-        # 1st term - chroma variance
-        chroma = (lab[:,:,1]**2 + lab[:,:,2]**2)**0.5
-        uc = np.mean(chroma)
-        sc = (np.mean((chroma - uc)**2))**0.5
-        
-        # 2nd term - contrast of lightness
-        top = int(np.round(0.01 * l.shape[0] * l.shape[1]))
-        sl = np.sort(l, axis=None)
-        isl = sl[::-1]
-        conl = np.mean(isl[:top]) - np.mean(sl[:top])
-        
-        # 3rd term - average saturation
-        satur = []
-        chroma1 = chroma.flatten()
-        l1 = l.flatten()
-        for i in range(len(l1)):
-            if chroma1[i] == 0 or l1[i] == 0:
-                satur.append(0)
-            else:
-                satur.append(chroma1[i] / l1[i])
-        
-        us = np.mean(satur)
-        
+       
+        # Extract LAB channels and normalize to match MATLAB reference
+        # skimage returns L:[0,100], a,b:[-128,127]
+        # MATLAB reference divides all by 255 after applycform
+        img_lum = lab[:,:,0].flatten() / 100.0 + np.finfo(float).eps
+        img_a = (lab[:,:,1].flatten() + 128) / 255.0  # Shift a* to [0,255] then normalize
+        img_b = (lab[:,:,2].flatten() + 128) / 255.0  # Shift b* to [0,255] then normalize
+       
+        # Chroma calculation
+        img_chr = np.sqrt(img_a**2 + img_b**2)
+       
+        # Saturation calculation  
+        img_sat = img_chr / np.sqrt(img_chr**2 + img_lum**2)
+       
+        # Average saturation
+        aver_sat = np.mean(img_sat)
+       
+        # Average chroma  
+        aver_chr = np.mean(img_chr)
+       
+        # Variance of chroma
+        var_chr = np.sqrt(np.mean(np.abs(1 - (aver_chr / (img_chr + np.finfo(float).eps))**2)))
+       
+        # Contrast of luminance using stretchlim equivalent
+        con_lum = np.percentile(img_lum, 98) - np.percentile(img_lum, 2)
+       
         # Calculate UCIQE
-        uciqe_score = c1 * sc + c2 * conl + c3 * us
+        uciqe_score = c1 * var_chr + c2 * con_lum + c3 * aver_sat
+           
         return uciqe_score
-        
+       
     except Exception as e:
         print(f"UCIQE calculation failed: {e}")
         return None
@@ -666,6 +666,22 @@ def load_image(path):
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     return img
 
+def load_image_cropped(path, gt_size=None, apply_chaos_resize=False):
+    """Load image and ensure RGB format with optional chaos processing"""
+    img = cv2.imread(path)
+    if img is None:
+        raise ValueError(f"Could not load image: {path}")
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    
+    # Apply chaos resize if specified
+    if apply_chaos_resize and gt_size is not None:
+        # Convert to float32 for consistency with training
+        img = img.astype(np.float32) / 255.0
+        img = cv2.resize(img, (gt_size, gt_size), interpolation=cv2.INTER_LINEAR)
+        # Convert back to 0-255 range
+        img = (img * 255).astype(np.uint8)
+    
+    return img
 
 def evaluate_images(gt_dir, pred_dir, output_file="evaluation_results.txt", 
                    crop_border=5, test_y_channel=True, correct_mean_variance=True):
@@ -673,11 +689,15 @@ def evaluate_images(gt_dir, pred_dir, output_file="evaluation_results.txt",
     
     # Get image files
     gt_files = sorted(glob.glob(os.path.join(gt_dir, "*.png")) + 
+                     glob.glob(os.path.join(gt_dir, "*.bmp")) + 
                      glob.glob(os.path.join(gt_dir, "*.jpg")) + 
+                     glob.glob(os.path.join(gt_dir, "*.JPG")) + 
                      glob.glob(os.path.join(gt_dir, "*.jpeg")))
     
     pred_files = sorted(glob.glob(os.path.join(pred_dir, "*.png")) + 
+                       glob.glob(os.path.join(pred_dir, "*.bmp")) + 
                        glob.glob(os.path.join(pred_dir, "*.jpg")) + 
+                       glob.glob(os.path.join(pred_dir, "*.JPG")) + 
                        glob.glob(os.path.join(pred_dir, "*.jpeg")))
     
     print(f"Found {len(gt_files)} GT images and {len(pred_files)} predicted images")
@@ -699,7 +719,10 @@ def evaluate_images(gt_dir, pred_dir, output_file="evaluation_results.txt",
     if len(matched_pairs) == 0:
         print("No matching image pairs found!")
         return
-    
+
+    # matched_pairs = matched_pairs[:10]
+    # print(f"Evaluating first {len(matched_pairs)} images")
+
     # Initialize metrics
     psnr_scores = []
     ssim_scores = []
@@ -730,12 +753,15 @@ def evaluate_images(gt_dir, pred_dir, output_file="evaluation_results.txt",
     print(f"- Test Y channel: {test_y_channel}")  
     print(f"- Correct mean/variance: {correct_mean_variance}")
     print(f"- LPIPS available: {lpips_model is not None}")
-    
+
     for gt_path, pred_path in tqdm(matched_pairs):
         try:
             # Load images
-            gt_img = load_image(gt_path)
-            pred_img = load_image(pred_path)
+            # gt_img = load_image(gt_path)
+            # pred_img = load_image(pred_path)
+
+            gt_img = load_image_cropped(gt_path, gt_size=256, apply_chaos_resize=True)
+            pred_img = load_image_cropped(pred_path, gt_size=256, apply_chaos_resize=True)
             
             # Resize if needed
             if gt_img.shape != pred_img.shape:
@@ -788,7 +814,7 @@ def evaluate_images(gt_dir, pred_dir, output_file="evaluation_results.txt",
         except Exception as e:
             print(f"Error processing {gt_path}: {e}")
             continue
-    
+
     # Calculate FID
     print("Calculating FID...")
     try:
@@ -796,7 +822,7 @@ def evaluate_images(gt_dir, pred_dir, output_file="evaluation_results.txt",
     except Exception as e:
         print(f"Error calculating FID: {e}")
         fid_score = None
-    
+
     # Calculate averages
     avg_psnr = np.mean(psnr_scores)
     avg_ssim = np.mean(ssim_scores)
@@ -831,7 +857,7 @@ def evaluate_images(gt_dir, pred_dir, output_file="evaluation_results.txt",
     correction_note = " (with correction)" if correct_mean_variance else " (uncorrected - recommended)"
     print(f"Evaluation type: {correction_note}")
     print("Note: ↑ higher is better, ↓ lower is better")
-    
+
     # Save results
     with open(output_file, 'w') as f:
         f.write("Image Quality Evaluation Results\n")
@@ -855,7 +881,6 @@ def evaluate_images(gt_dir, pred_dir, output_file="evaluation_results.txt",
         if avg_uiqm is not None:
             f.write(f"UIQM: {avg_uiqm:.6f} ± {np.std(uiqm_scores):.6f}\n")
     print(f"Results saved to: {output_file}")
-
 
 def main():
     parser = argparse.ArgumentParser(description='image quality evaluation')
@@ -882,8 +907,8 @@ def main():
 
 if __name__ == "__main__":
     # Example usage
-    gt_dir = "/depot/natallah/data/shourya/Reti-Diff-main/datasets/LOL-v2/Synthetic/Test/Normal"
-    pred_dir = "/depot/natallah/data/shourya/Reti-Diff-main/results/LLIE_Syn_2/visualization/Testset"
+    gt_dir = "/depot/natallah/data/shourya/Reti-Diff-main/datasets/IDIR/NPE"
+    pred_dir = "/depot/natallah/data/shourya/Reti-Diff-main/results/LLIE_real_NPE/visualization/Testset"
     
     print("Starting comprehensive evaluation...")
     evaluate_images(gt_dir, pred_dir)

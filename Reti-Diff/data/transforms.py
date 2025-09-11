@@ -123,13 +123,20 @@ def paired_scale_BAID(img_gts, img_lqs):
             h = int(h * 2048 / w)
             w = 2048
 
+    # ensure dimensions are divisible by 32 for all network operations
+    # The network has multiple levels of PixelUnshuffle with factors 2 and 4
+    # and 3 levels of downsampling, requiring higher alignment
+    if h % 32 != 0:
+        h = h + (32 - h % 32)
+    if w % 32 != 0:
+        w = w + (32 - w % 32)
+
     # resize numpy image
     img_gts = cv2.resize(img_gts, (w, h),
                              interpolation=cv2.INTER_CUBIC)
     img_lqs = cv2.resize(img_lqs, (w, h),
                              interpolation=cv2.INTER_CUBIC)
     return img_gts, img_lqs
-
 
 def paired_random_crop_DP(img_lqLs, img_lqRs, img_gts, gt_patch_size, scale, gt_path):
     if not isinstance(img_gts, list):

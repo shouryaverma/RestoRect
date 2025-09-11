@@ -6,7 +6,7 @@
 #SBATCH -N 1
 #SBATCH -p ai
 #SBATCH -q preemptible
-#SBATCH -t 48:00:00
+#SBATCH -t 2:00:00
 #SBATCH --gpus-per-node=1
 #SBATCH --cpus-per-gpu=14
 #SBATCH --mail-user=verma198@purdue.edu

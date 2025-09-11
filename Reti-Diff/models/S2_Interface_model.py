@@ -603,29 +603,142 @@ class S2_Interface_Model(SRModel):
         return lq,mod_pad_h,mod_pad_w
 
     def test(self):
-        """Testing with RectifiedFlow - much faster than DDPM"""
         window_size = self.opt['val'].get('window_size', 0)
+        
         if window_size:
-            lq,mod_pad_h,mod_pad_w=self.pad_test(window_size)
+            lq, mod_pad_h, mod_pad_w = self.pad_test(window_size)
         else:
-            lq=self.lq
+            lq = self.lq
+        
         with torch.no_grad():
             r_lq, i_lq, _ = self.Decom_l(lq)
-
+        
         retinex_lq = torch.cat([r_lq, i_lq], dim=1)
-
+        
+        # Fast rectified flow inference - no tiling needed
         if hasattr(self, 'net_g_ema'):
             self.net_g_ema.eval()
             with torch.no_grad():
-                # RectifiedFlow inference is much simpler and faster
                 self.output = self.net_g_ema(lq, retinex_lq)
         else:
             self.net_g.eval()
             with torch.no_grad():
-                # RectifiedFlow inference is much simpler and faster
                 self.output = self.net_g(lq, retinex_lq)
             self.net_g.train()
+        
         if window_size:
             scale = self.opt.get('scale', 1)
             _, _, h, w = self.output.size()
             self.output = self.output[:, :, 0:h - mod_pad_h * scale, 0:w - mod_pad_w * scale]
+
+    # def test(self):
+    #     """Testing with memory management for large images"""
+    #     window_size = self.opt['val'].get('window_size', 0)
+        
+    #     if window_size:
+    #         lq, mod_pad_h, mod_pad_w = self.pad_test(window_size)
+    #     else:
+    #         lq = self.lq
+        
+    #     # Check if image is too large and needs tiling
+    #     _, _, h, w = lq.shape
+    #     max_size = 512  # Maximum dimension to process at once
+        
+    #     if h > max_size or w > max_size:
+    #         self.output = self._tile_process(lq, max_size)
+    #     else:
+    #         # Standard processing for smaller images
+    #         with torch.no_grad():
+    #             r_lq, i_lq, _ = self.Decom_l(lq)
+            
+    #         retinex_lq = torch.cat([r_lq, i_lq], dim=1)
+            
+    #         if hasattr(self, 'net_g_ema'):
+    #             self.net_g_ema.eval()
+    #             with torch.no_grad():
+    #                 self.output = self.net_g_ema(lq, retinex_lq)
+    #         else:
+    #             self.net_g.eval()
+    #             with torch.no_grad():
+    #                 self.output = self.net_g(lq, retinex_lq)
+    #             self.net_g.train()
+        
+    #     if window_size:
+    #         scale = self.opt.get('scale', 1)
+    #         _, _, h, w = self.output.size()
+    #         self.output = self.output[:, :, 0:h - mod_pad_h * scale, 0:w - mod_pad_w * scale]
+
+    # def _tile_process(self, lq, tile_size):
+    #     """Process large images in overlapping tiles"""
+    #     b, c, h, w = lq.shape
+    #     overlap = tile_size // 4  # 25% overlap
+    #     stride = tile_size - overlap
+        
+    #     # Calculate number of tiles
+    #     n_tiles_h = (h - overlap) // stride + (1 if (h - overlap) % stride > 0 else 0)
+    #     n_tiles_w = (w - overlap) // stride + (1 if (w - overlap) % stride > 0 else 0)
+        
+    #     # Initialize output
+    #     output = torch.zeros_like(lq)
+    #     weight_map = torch.zeros((1, 1, h, w), device=lq.device)
+        
+    #     for i in range(n_tiles_h):
+    #         for j in range(n_tiles_w):
+    #             # Calculate tile boundaries
+    #             start_h = i * stride
+    #             start_w = j * stride
+    #             end_h = min(start_h + tile_size, h)
+    #             end_w = min(start_w + tile_size, w)
+                
+    #             # Extract tile
+    #             tile_lq = lq[:, :, start_h:end_h, start_w:end_w]
+                
+    #             # Process tile
+    #             with torch.no_grad():
+    #                 r_tile, i_tile, _ = self.Decom_l(tile_lq)
+    #             retinex_tile = torch.cat([r_tile, i_tile], dim=1)
+                
+    #             if hasattr(self, 'net_g_ema'):
+    #                 self.net_g_ema.eval()
+    #                 with torch.no_grad():
+    #                     tile_output = self.net_g_ema(tile_lq, retinex_tile)
+    #             else:
+    #                 self.net_g.eval()
+    #                 with torch.no_grad():
+    #                     tile_output = self.net_g(tile_lq, retinex_tile)
+    #                 self.net_g.train()
+                
+    #             # Create blending weights (higher in center, lower at edges)
+    #             tile_h, tile_w = tile_output.shape[2], tile_output.shape[3]
+    #             weight_tile = torch.ones((1, 1, tile_h, tile_w), device=lq.device)
+                
+    #             # Apply Gaussian-like weighting to reduce seam artifacts
+    #             if overlap > 0:
+    #                 # Fade in from edges
+    #                 fade_h = min(overlap, tile_h // 4)
+    #                 fade_w = min(overlap, tile_w // 4)
+                    
+    #                 # Top/bottom edges
+    #                 if start_h > 0:  # Not top edge
+    #                     weight_tile[:, :, :fade_h, :] *= torch.linspace(0.1, 1.0, fade_h, device=lq.device).view(-1, 1)
+    #                 if end_h < h:  # Not bottom edge
+    #                     weight_tile[:, :, -fade_h:, :] *= torch.linspace(1.0, 0.1, fade_h, device=lq.device).view(-1, 1)
+                    
+    #                 # Left/right edges
+    #                 if start_w > 0:  # Not left edge
+    #                     weight_tile[:, :, :, :fade_w] *= torch.linspace(0.1, 1.0, fade_w, device=lq.device).view(1, -1)
+    #                 if end_w < w:  # Not right edge
+    #                     weight_tile[:, :, :, -fade_w:] *= torch.linspace(1.0, 0.1, fade_w, device=lq.device).view(1, -1)
+                
+    #             # Accumulate weighted output
+    #             output[:, :, start_h:end_h, start_w:end_w] += tile_output * weight_tile
+    #             weight_map[:, :, start_h:end_h, start_w:end_w] += weight_tile
+                
+    #             # Clear memory
+    #             del tile_lq, r_tile, i_tile, retinex_tile, tile_output, weight_tile
+    #             torch.cuda.empty_cache()
+        
+    #     # Normalize by accumulated weights
+    #     output = output / weight_map.expand_as(output)
+        
+    #     return output

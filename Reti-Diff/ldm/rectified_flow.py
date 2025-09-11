@@ -17,7 +17,7 @@ def uniform_on_device(r1, r2, shape, device):
 
 
 class RectifiedFlow(nn.Module):
-    """Rectified Flow implementation for image generation.
+    """Optimized Rectified Flow implementation for image generation.
     
     Uses straight-line paths between noise and data instead of complex diffusion schedules.
     Much simpler than DDPM with better sampling efficiency.
@@ -99,69 +99,67 @@ class RectifiedFlow(nn.Module):
         x_1_pred = x_t + (1 - t_expanded) * velocity
         return x_1_pred
 
-    def p_mean_variance(self, x, t, c, clip_denoised: bool):
-        """Compute the mean for the posterior p(x_{t-1} | x_t)
-        
-        For rectified flow, this is much simpler than DDPM.
-        """
-        velocity = self.model(x, t, c)
-        
-        # For rectified flow, we can predict x_0 directly
-        x_recon = self.predict_x0_from_velocity(x, t, velocity)
-        
-        if clip_denoised:
-            x_recon.clamp_(-1., 1.)
-            
-        # For rectified flow, the "mean" is just a step along the straight line
-        # We'll implement ODE stepping in the sampling functions
-        return x_recon, None, None, velocity
+    def ode_sample_step(self, x, t_tensor, c, dt):
+        """Optimized single ODE step with cached conditioning"""
+        velocity = self.model(x, t_tensor, c)
+        return x - dt * velocity  # Negative for noise-to-clean direction
 
-    def p_sample(self, x, t, c, clip_denoised=True, repeat_noise=False):
-        """Single sampling step using ODE integration
+    def inference_generation(self, input_features, num_steps=5):
+        """Separate fast inference generation
         
-        For rectified flow, we use Euler's method for ODE solving.
+        Args:
+            input_features: Input for conditioning network
+            num_steps: Number of ODE steps (optimized for quality-speed tradeoff)
         """
-        b, *_, device = *x.shape, x.device
-        velocity = self.model(x, t, c)
+        device = self.timesteps_array.device
+        b = input_features.shape[0]
         
-        if clip_denoised:
-            # Predict x_0 and clip it
-            x_0_pred = self.predict_x0_from_velocity(x, t, velocity)
-            x_0_pred.clamp_(-1., 1.)
-            # Recompute velocity with clipped x_0
-            x_1_pred = self.predict_x1_from_velocity(x, t, velocity)
-            velocity = x_1_pred - x_0_pred
+        shape = (b, self.channels * 4)
+        x_current = torch.randn(shape, device=device)
+        c = self.condition(input_features)  # Cache conditioning
         
-        return x, velocity
+        # Optimized n-step generation
+        dt = 1.0 / num_steps
+        
+        with torch.no_grad():  # Ensure no gradient computation during inference
+            for i in range(num_steps):
+                t_current = 1.0 - i * dt
+                t_idx = int(t_current * (self.num_timesteps - 1))
+                t_tensor = torch.full((b,), t_idx, device=device, dtype=torch.long)
+                
+                x_current = self.ode_sample_step(x_current, t_tensor, c, dt)
+        
+        # Return in expected format - no wasteful padding
+        pred_deg_list = [x_current] * min(num_steps, self.num_timesteps)
+        
+        return x_current, pred_deg_list
 
-    def ode_sample_step(self, x, t_current, t_next, c, clip_denoised=True):
-        """Single ODE step from t_current to t_next
+    def single_step_inference(self, input_features):
+        """Ultra-fast single-step inference for well-trained models"""
+        device = self.timesteps_array.device
+        b = input_features.shape[0]
         
-        Uses Euler's method: x_{t_next} = x_{t_current} + (t_next - t_current) * velocity
-        """
-        # Get velocity at current time
-        t_current_tensor = torch.full((x.shape[0],), t_current, device=x.device, dtype=torch.long)
-        velocity = self.model(x, t_current_tensor, c)
+        shape = (b, self.channels * 4)
+        x_1 = torch.randn(shape, device=device)  # Start from noise
+        c = self.condition(input_features)
         
-        if clip_denoised:
-            x_0_pred = self.predict_x0_from_velocity(x, t_current_tensor, velocity)
-            x_0_pred.clamp_(-1., 1.)
-            x_1_pred = self.predict_x1_from_velocity(x, t_current_tensor, velocity)
-            velocity = x_1_pred - x_0_pred
+        # Single prediction at t=1.0 (maximum noise)
+        t_max = torch.full((b,), self.num_timesteps - 1, device=device, dtype=torch.long)
         
-        # Euler step
-        dt = t_next - t_current
-        x_next = x + dt * velocity
+        with torch.no_grad():
+            velocity = self.model(x_1, t_max, c)
+            # Direct jump to t=0 (clean data)
+            x_0 = x_1 - velocity  # Since velocity = x_1 - x_0
         
-        return x_next
+        return x_0
 
-    def p_sample_loop(self, shape, return_intermediates=False, num_steps=None):
+    def p_sample_loop(self, shape, return_intermediates=False, num_steps=5):
         """Full sampling loop using ODE integration
         
         Args:
             shape: Shape of samples to generate
             return_intermediates: Whether to return intermediate steps
-            num_steps: Number of ODE steps (can be much smaller than training steps)
+            num_steps: Number of ODE steps (default 5 for quality-speed balance)
         """
         device = self.timesteps_array.device
         b = shape[0]
@@ -170,29 +168,24 @@ class RectifiedFlow(nn.Module):
         img = torch.randn(shape, device=device)
         intermediates = [img] if return_intermediates else []
         
-        # Use fewer steps for sampling if specified
-        if num_steps is None:
-            num_steps = self.num_timesteps
-            
         # Create time schedule for sampling
         time_schedule = np.linspace(1.0, 0.0, num_steps + 1)
+        dt = 1.0 / num_steps
         
-        for i in tqdm(range(num_steps), desc='RF Sampling'):
-            t_current = time_schedule[i]
-            t_next = time_schedule[i + 1]
-            
-            # Convert to tensor indices for conditioning
-            t_idx = int(t_current * (self.num_timesteps - 1))
-            t_tensor = torch.full((b,), t_idx, device=device, dtype=torch.long)
-            
-            # Get conditioning (this should be provided externally in real usage)
-            c = torch.zeros(b, 256, device=device)  # Placeholder
-            
-            img = self.ode_sample_step(img, t_current, t_next, c, self.clip_denoised)
-            
-            if return_intermediates:
-                intermediates.append(img)
+        # Placeholder conditioning - should be provided externally
+        c = torch.zeros(b, 256, device=device)
+        
+        with torch.no_grad():
+            for i in range(num_steps):
+                t_current = time_schedule[i]
+                t_idx = int(t_current * (self.num_timesteps - 1))
+                t_tensor = torch.full((b,), t_idx, device=device, dtype=torch.long)
                 
+                img = self.ode_sample_step(img, t_tensor, c, dt)
+                
+                if return_intermediates:
+                    intermediates.append(img)
+                    
         if return_intermediates:
             return img, intermediates
         return img
@@ -203,7 +196,7 @@ class RectifiedFlow(nn.Module):
         Args:
             batch_size: Number of samples
             return_intermediates: Return intermediate steps
-            num_steps: Number of ODE steps (typically 1-10 for rectified flow)
+            num_steps: Number of ODE steps (5 for optimal quality-speed balance)
         """
         image_size = self.image_size
         channels = self.channels
@@ -245,13 +238,8 @@ class RectifiedFlow(nn.Module):
         b = input_features.shape[0]
         
         if self.training and target_features is not None:
-            # Training mode: learn to generate target_features
-            pred_deg_list = []
-            
-            # Get conditioning from input
+            # Training mode: ONLY do velocity learning, no generation
             c = self.condition(input_features)
-            
-            # Use target_features as x_0 (clean data)
             x_start = target_features
             
             # Sample random time steps for velocity training
@@ -263,57 +251,17 @@ class RectifiedFlow(nn.Module):
             # Predict velocity (this is where learning happens)
             velocity_pred = self.model(x_t, t, c)
             
-            # Compute velocity loss internally (this trains the velocity predictor)
+            # Compute velocity loss internally
             true_velocity = self.compute_velocity(x_start, x_end)
             self.velocity_loss = F.mse_loss(velocity_pred, true_velocity)
             
-            # Now generate features using a quick RF sampling for KD loss
-            # Start from noise and do a few steps to generate features
-            x_noise = torch.randn_like(x_start)
-            deg_prep = x_noise
-            
-            # Quick sampling to generate features
-            num_quick_steps = min(5, self.num_timesteps)
-            time_schedule = np.linspace(1.0, 0.0, num_quick_steps + 1)
-            
-            for i in range(num_quick_steps):
-                t_current = time_schedule[i]
-                t_next = time_schedule[i + 1]
-                
-                # Convert to tensor index
-                t_idx = int(t_current * (self.num_timesteps - 1))
-                t_tensor = torch.full((b,), t_idx, device=device, dtype=torch.long)
-                
-                # ODE step
-                velocity = self.model(deg_prep, t_tensor, c)
-                dt = t_next - t_current
-                deg_prep = deg_prep + dt * velocity
-                
-                pred_deg_list.append(deg_prep)
-            
-            # Fill remaining slots for compatibility
-            while len(pred_deg_list) < self.num_timesteps:
-                pred_deg_list.append(deg_prep)
-            
-            return deg_prep, pred_deg_list
+            # Return ONLY what's needed for KD loss - do generation separately
+            return self.inference_generation(input_features)
             
         else:
-            # Inference mode: sample from noise to generate features
-            shape = (b, self.channels * 4)  # Match original interface 
-            x_noisy = torch.randn(shape, device=device)
-            c = self.condition(input_features)
-            
-            # Use fast sampling
-            num_steps = 5
-            time_schedule = np.linspace(1.0, 0.0, num_steps + 1)
-            
-            x_current = x_noisy
-            for i in range(num_steps):
-                t_current = time_schedule[i]
-                t_next = time_schedule[i + 1]
-                x_current = self.ode_sample_step(x_current, t_current, t_next, c, self.clip_denoised)
-                
-            return x_current
+            # Inference mode: use optimized generation
+            result, _ = self.inference_generation(input_features)
+            return result
 
 
 # For compatibility with existing code that might import DDIMSampler

@@ -1,5 +1,5 @@
 # general settings
-name: UIE_LSUI_time
+name: LLIE_real_NPE
 model_type: S2_Interface_Model
 scale: 1
 num_gpu: auto  # auto: can infer from your visible devices automatically. official: 4 GPUs
@@ -12,10 +12,10 @@ datasets:
   val_1:
     name: Testset
     type: DeblurPairedDataset
-    dataroot_gt: /depot/natallah/data/shourya/Reti-Diff-main/datasets/LSUI/gt_test
-    dataroot_lq: /depot/natallah/data/shourya/Reti-Diff-main/datasets/LSUI/input_test
-    dataset_type: chaos
-    gt_size: 256
+    batch_size: 1
+    dataroot_gt: /depot/natallah/data/shourya/Reti-Diff-main/datasets/IDIR/NPE
+    dataroot_lq: /depot/natallah/data/shourya/Reti-Diff-main/datasets/IDIR/NPE
+    dataset_type: ~
     io_backend:
       type: disk
 
@@ -39,21 +39,17 @@ network_g:
   timesteps: 4
 
 
-
 # path
 path:
-  pretrain_network_g: /depot/natallah/data/shourya/Reti-Diff-main/experiments/RestoRect_S2Model_UIE_LSUI/models/net_g_225000.pth
+  pretrain_network_g: /depot/natallah/data/shourya/Reti-Diff-main/experiments/S2Model_LLIEv1_1_all/models/net_g_140000.pth
   param_key_g: params_ema
   strict_load_g: False
 
 pretrain_decomnet_low: /depot/natallah/data/shourya/Reti-Diff-main/pretrained_models/retinex_decomnet.pth
 
 
-
 val:
   window_size: 8
+  batch_size: 1
   save_img: True
   suffix: ~  # add suffix to saved images, if None, use exp name
-
-
-

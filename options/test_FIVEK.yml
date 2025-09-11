@@ -1,5 +1,5 @@
 # general settings
-name: Backlit
+name: FIVEK
 model_type: S2_Interface_Model
 scale: 1
 num_gpu: auto  # auto: can infer from your visible devices automatically. official: 4 GPUs
@@ -12,16 +12,15 @@ datasets:
   val_1:
     name: Testset
     type: DeblurPairedDataset
-    dataroot_gt: # put your own path here
-    dataroot_lq: # put your own path here
+    dataroot_gt: /depot/natallah/data/shourya/Reti-Diff-main/datasets/FiveK/test/target
+    dataroot_lq: /depot/natallah/data/shourya/Reti-Diff-main/datasets/FiveK/test/input
     dataset_type: BAID
     io_backend:
       type: disk
 
-
 # network structures
 network_g:
-  type: RetiDiffS2_Interface
+  type: RestoRectS2
   n_encoder_res: 5
   inp_channels: 3
   out_channels: 3
@@ -31,25 +30,25 @@ network_g:
   heads: [1,2,4,8]
   ffn_expansion_factor: 2.66
   bias: False
-  LayerNorm_type: WithBias
+  LayerNorm_type: SpatialChannel
   n_denoise_res: 1
   linear_start: 0.1
   linear_end: 0.99
   timesteps: 4
 
-
-
 # path
 path:
-  pretrain_network_g: ./pretrained_models/backlit.pth
+  pretrain_network_g: /depot/natallah/data/shourya/Reti-Diff-main/experiments/RestoRect_S2Model_FIVEK/models/net_g_105000.pth
   param_key_g: params_ema
   strict_load_g: False
 
-pretrain_decomnet_low: pretrained_models/retinex_decomnet.pth
-
+pretrain_decomnet_low: /depot/natallah/data/shourya/Reti-Diff-main/pretrained_models/retinex_decomnet.pth
 
 
 val:
   window_size: 8
+  batch_size: 1
   save_img: True
   suffix: ~  # add suffix to saved images, if None, use exp name
+
+# sinteractive -A pccr -N 1 -p ai -q preemptible -t 4:00:00 --gpus-per-node=1 --cpus-per-gpu=14 --mail-user=verma198@purdue.edu --mail-type=FAIL

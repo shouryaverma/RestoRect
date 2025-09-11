@@ -27,7 +27,7 @@ export GPU=0
 cd /depot/natallah/data/shourya/Reti-Diff-main
 
 # Run the multi-GPU training pipeline
-CUDA_VISIBLE_DEVICES=0 python3 /depot/natallah/data/shourya/Reti-Diff-main/Reti-Diff/test.py -opt /depot/natallah/data/shourya/Reti-Diff-main/options/test_LLIE_v1.yml
+CUDA_VISIBLE_DEVICES=0 python3 /depot/natallah/data/shourya/Reti-Diff-main/Reti-Diff/test.py -opt /depot/natallah/data/shourya/Reti-Diff-main/options/test_LLIE_v1_unpaired.yml
 
 ends=$(date +"%s")
 end=$(date +"%r, %m-%d-%Y")

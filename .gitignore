@@ -8,3 +8,4 @@ tb_logger/
 bash/*.out
 experiments/
 results/
+pretrained_models/

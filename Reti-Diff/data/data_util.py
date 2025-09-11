@@ -239,34 +239,72 @@ def paired_paths_from_folder(folders, keys, filename_tmpl):
         f'{input_key} and {gt_key} datasets have different number of images: '
         f'{len(input_paths)}, {len(gt_paths)}.')
     
-    # Create a mapping based on numeric part of filenames
+    # Create mapping based on full basename first, then try numeric matching
     input_dict = {}
+    input_numeric_dict = {}
+    
     for input_path in input_paths:
         basename = osp.splitext(osp.basename(input_path))[0]
-        # Extract numeric part (assumes format like 'low00001', 'normal00001')
+        input_dict[basename] = input_path
+        
+        # Also create numeric mapping if numbers exist
         numeric_match = re.search(r'(\d+)', basename)
         if numeric_match:
             numeric_part = numeric_match.group(1)
-            input_dict[numeric_part] = input_path
+            input_numeric_dict[numeric_part] = input_path
     
     paths = []
     for gt_path in gt_paths:
         basename_gt = osp.splitext(osp.basename(gt_path))[0]
-        # Extract numeric part from GT filename
-        numeric_match = re.search(r'(\d+)', basename_gt)
-        if numeric_match:
-            numeric_part = numeric_match.group(1)
-            if numeric_part in input_dict:
-                input_path = input_dict[numeric_part]
-                full_input_path = osp.join(input_folder, input_path)
-                full_gt_path = osp.join(gt_folder, gt_path)
-                paths.append(
-                    dict([(f'{input_key}_path', full_input_path),
-                          (f'{gt_key}_path', full_gt_path)]))
-            else:
-                raise ValueError(f'No matching input file found for GT file {gt_path} with numeric part {numeric_part}')
+        
+        # Try exact basename match first
+        if basename_gt in input_dict:
+            input_path = input_dict[basename_gt]
+            full_input_path = osp.join(input_folder, input_path)
+            full_gt_path = osp.join(gt_folder, gt_path)
+            paths.append(
+                dict([(f'{input_key}_path', full_input_path),
+                      (f'{gt_key}_path', full_gt_path)]))
         else:
-            raise ValueError(f'Could not extract numeric part from GT filename: {gt_path}')
+            # Fall back to numeric matching
+            numeric_match = re.search(r'(\d+)', basename_gt)
+            if numeric_match:
+                numeric_part = numeric_match.group(1)
+                if numeric_part in input_numeric_dict:
+                    input_path = input_numeric_dict[numeric_part]
+                    full_input_path = osp.join(input_folder, input_path)
+                    full_gt_path = osp.join(gt_folder, gt_path)
+                    paths.append(
+                        dict([(f'{input_key}_path', full_input_path),
+                              (f'{gt_key}_path', full_gt_path)]))
+                else:
+                    raise ValueError(f'No matching input file found for GT file {gt_path} with numeric part {numeric_part}')
+            else:
+                # If no exact match and no numeric part, try filename template matching
+                for input_path in input_paths:
+                    input_basename = osp.splitext(osp.basename(input_path))[0]
+                    if filename_tmpl != '{}':
+                        # Apply template matching logic here if needed
+                        expected_name = filename_tmpl.format(basename_gt)
+                        if input_basename == expected_name:
+                            full_input_path = osp.join(input_folder, input_path)
+                            full_gt_path = osp.join(gt_folder, gt_path)
+                            paths.append(
+                                dict([(f'{input_key}_path', full_input_path),
+                                      (f'{gt_key}_path', full_gt_path)]))
+                            break
+                    else:
+                        # For simple cases, assume sorted order matching
+                        if gt_paths.index(gt_path) < len(input_paths):
+                            input_path = input_paths[gt_paths.index(gt_path)]
+                            full_input_path = osp.join(input_folder, input_path)
+                            full_gt_path = osp.join(gt_folder, gt_path)
+                            paths.append(
+                                dict([(f'{input_key}_path', full_input_path),
+                                      (f'{gt_key}_path', full_gt_path)]))
+                            break
+                else:
+                    raise ValueError(f'No matching input file found for GT file {gt_path}')
     
     return paths
 
