@@ -1,0 +1,16 @@
+Image Quality Evaluation Results
+================================================================================
+GT Directory: /depot/natallah/data/shourya/Reti-Diff-main/datasets/eyeq/dataset/sample
+Predicted Directory: /depot/natallah/data/shourya/Reti-Diff-main/results/BAID_fundus/visualization/Testset
+Number of images: 8
+
+PSNR: 20.451057 ± 2.339268
+SSIM: 0.917791 ± 0.033283
+FID:  37.040875
+NIQE: 8.265342 ± 1.052562
+LPIPS: 0.063890 ± 0.015719
+BRISQUE: 27.535767 ± 7.097927
+BIQI: 6.033922 ± 1.233243
+UCIQE: 0.604657 ± 0.048276
+UIQM: 2.062867 ± 0.326818
+CLIP-IQA ↑: 0.503907 ± 0.001448

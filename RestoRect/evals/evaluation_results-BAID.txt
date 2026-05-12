@@ -1,0 +1,16 @@
+Image Quality Evaluation Results
+================================================================================
+GT Directory: /depot/natallah/data/shourya/Reti-Diff-main/datasets/BAID/BAID-test/resize_gt
+Predicted Directory: /depot/natallah/data/shourya/Reti-Diff-main/results/BAID/visualization/Testset
+Number of images: 368
+
+PSNR: 27.679839 ± 4.346392
+SSIM: 0.965960 ± 0.026282
+FID:  15.829290
+NIQE: 8.110328 ± 2.182775
+LPIPS: 0.064923 ± 0.038019
+BRISQUE: 34.388570 ± 14.090127
+BIQI: 10.489086 ± 2.662035
+UCIQE: 0.558123 ± 0.043357
+UIQM: 2.867113 ± 0.546589
+CLIP-IQA ↑: 0.501169 ± 0.001874

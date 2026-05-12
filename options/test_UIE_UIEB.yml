@@ -12,8 +12,8 @@ datasets:
   val_1:
     name: Testset
     type: DeblurPairedDataset
-    dataroot_gt: /depot/natallah/data/shourya/Reti-Diff-main/datasets/UIEB/gt_test
-    dataroot_lq: /depot/natallah/data/shourya/Reti-Diff-main/datasets/UIEB/input_test
+    dataroot_gt: /depot/natallah/data/shourya/RestoRect/datasets/UIEB/gt_test
+    dataroot_lq: /depot/natallah/data/shourya/RestoRect/datasets/UIEB/input_test
     dataset_type: chaos
     gt_size: 256
     io_backend:
@@ -22,7 +22,7 @@ datasets:
 
 # network structures
 network_g:
-  type: RestoRectS2
+  type: RestoRectS2_Interface
   n_encoder_res: 5
   inp_channels: 3
   out_channels: 3
@@ -42,11 +42,11 @@ network_g:
 
 # path
 path:
-  pretrain_network_g: /depot/natallah/data/shourya/Reti-Diff-main/experiments/RestoRect_S2Model_UIE_UIEB/models/net_g_215000.pth
+  pretrain_network_g: /depot/natallah/data/shourya/RestoRect/experiments/RestoRect_S2Model_UIE_UIEB/models/net_g_215000.pth
   param_key_g: params_ema
   strict_load_g: False
 
-pretrain_decomnet_low: /depot/natallah/data/shourya/Reti-Diff-main/pretrained_models/retinex_decomnet.pth
+pretrain_decomnet_low: /depot/natallah/data/shourya/RestoRect/pretrained_models/retinex_decomnet.pth
 
 
 

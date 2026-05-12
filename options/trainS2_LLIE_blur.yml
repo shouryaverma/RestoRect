@@ -3,8 +3,8 @@ model_type: RestoRect_S2Model
 scale: 1
 num_gpu: auto  # auto: can infer from your visible devices automatically. official: 4 GPUs
 manual_seed: 0
-pretrain_decomnet_high: /depot/natallah/data/shourya/Reti-Diff-main/pretrained_models/init_high.pth
-pretrain_decomnet_low: /depot/natallah/data/shourya/Reti-Diff-main/pretrained_models/init_low.pth
+pretrain_decomnet_high: /depot/natallah/data/shourya/RestoRect/pretrained_models/init_high.pth
+pretrain_decomnet_low: /depot/natallah/data/shourya/RestoRect/pretrained_models/init_low.pth
 
 # FLEX Configuration - Add this section
 use_flex: true  # Enable/disable FLEX loss
@@ -14,8 +14,8 @@ datasets:
   train:
     name: TrainSet
     type: DeblurPairedDataset
-    dataroot_gt: /depot/natallah/data/shourya/Reti-Diff-main/datasets/LOL-blur/train_gt
-    dataroot_lq: /depot/natallah/data/shourya/Reti-Diff-main/datasets/LOL-blur/train_input
+    dataroot_gt: /depot/natallah/data/shourya/RestoRect/datasets/LOL-blur/train_gt
+    dataroot_lq: /depot/natallah/data/shourya/RestoRect/datasets/LOL-blur/train_input
     geometric_augs: true
     dataset_type: ~
     filename_tmpl: '{}'
@@ -36,8 +36,8 @@ datasets:
     name: ValSet
     type: DeblurPairedDataset
     dataset_type: ~
-    dataroot_gt: /depot/natallah/data/shourya/Reti-Diff-main/datasets/LOL-blur/eval/gt
-    dataroot_lq: /depot/natallah/data/shourya/Reti-Diff-main/datasets/LOL-blur/eval/input
+    dataroot_gt: /depot/natallah/data/shourya/RestoRect/datasets/LOL-blur/eval/gt
+    dataroot_lq: /depot/natallah/data/shourya/RestoRect/datasets/LOL-blur/eval/input
     io_backend:
       type: disk
 
@@ -75,8 +75,8 @@ network_S1:
 
 # path
 path:
-  pretrain_network_g: /depot/natallah/data/shourya/Reti-Diff-main/experiments/RestoRect_S1Model_LLIE_blur/models/net_g_20000.pth
-  pretrain_network_S1: /depot/natallah/data/shourya/Reti-Diff-main/experiments/RestoRect_S1Model_LLIE_blur/models/net_g_20000.pth
+  pretrain_network_g: /depot/natallah/data/shourya/RestoRect/experiments/RestoRect_S1Model_LLIE_blur/models/net_g_20000.pth
+  pretrain_network_S1: /depot/natallah/data/shourya/RestoRect/experiments/RestoRect_S1Model_LLIE_blur/models/net_g_20000.pth
   param_key_g: params_ema
   strict_load_g: False
   resume_state: ~
@@ -127,8 +127,7 @@ train:
   flex_opt:
     loss_weight: 0.5  # Higher than default 0.1 for stronger perceptual guidance
     snr_threshold: 0.4  # Apply FLEX when timestep < 0.4 (high SNR regime)
-    outlier_threshold: 2.5  # Threshold for outlier detection
-    kernel_size: 3  # Kernel size for morphological operations
+    outlier_percentile: 95.0  # Percentile for outlier detection
     apply_cross_norm: true  # Enable cross-normalization
     apply_outlier_detection: true  # Enable outlier detection
     # Target layers - these should match architecture

@@ -1,0 +1,10 @@
+Filtered FID Calculation Results
+============================================================
+GT Directory: /depot/natallah/data/shourya/Reti-Diff-main/datasets/SSID/Sony/long_resized
+Predicted Directory: /depot/natallah/data/shourya/Reti-Diff-main/results/SSID/visualization/SSID_ValSet
+Images removed: 248
+Images used: 350
+
+FID (all images): 121.071805
+FID (filtered):   59.487226
+Improvement:      61.584579

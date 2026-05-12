@@ -1,0 +1,16 @@
+Image Quality Evaluation Results
+================================================================================
+GT Directory: /depot/natallah/data/shourya/Reti-Diff-main/datasets/SICE/SICE_Reshape
+Predicted Directory: /depot/natallah/data/shourya/Reti-Diff-main/results/SICE_mix/visualization/SICE_ValSet
+Number of images: 485
+
+PSNR: 15.041332 ± 2.006753
+SSIM: 0.667776 ± 0.104067
+FID:  125.230726
+NIQE: 6.602164 ± 1.658916
+LPIPS: 0.393630 ± 0.106109
+BRISQUE: 21.884130 ± 10.793848
+BIQI: 11.513462 ± 2.811592
+UCIQE: 0.544438 ± 0.058019
+UIQM: 3.016630 ± 0.391856
+CLIP-IQA ↑: 0.497845 ± 0.001952

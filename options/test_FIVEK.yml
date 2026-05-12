@@ -12,15 +12,15 @@ datasets:
   val_1:
     name: Testset
     type: DeblurPairedDataset
-    dataroot_gt: /depot/natallah/data/shourya/Reti-Diff-main/datasets/FiveK/test/target
-    dataroot_lq: /depot/natallah/data/shourya/Reti-Diff-main/datasets/FiveK/test/input
+    dataroot_gt: /depot/natallah/data/shourya/RestoRect/datasets/FiveK/test/target
+    dataroot_lq: /depot/natallah/data/shourya/RestoRect/datasets/FiveK/test/input
     dataset_type: BAID
     io_backend:
       type: disk
 
 # network structures
 network_g:
-  type: RestoRectS2
+  type: RestoRectS2_Interface
   n_encoder_res: 5
   inp_channels: 3
   out_channels: 3
@@ -38,11 +38,11 @@ network_g:
 
 # path
 path:
-  pretrain_network_g: /depot/natallah/data/shourya/Reti-Diff-main/experiments/RestoRect_S2Model_FIVEK/models/net_g_105000.pth
+  pretrain_network_g: /depot/natallah/data/shourya/RestoRect/experiments/RestoRect_S2Model_FIVEK/models/net_g_105000.pth
   param_key_g: params_ema
   strict_load_g: False
 
-pretrain_decomnet_low: /depot/natallah/data/shourya/Reti-Diff-main/pretrained_models/retinex_decomnet.pth
+pretrain_decomnet_low: /depot/natallah/data/shourya/RestoRect/pretrained_models/retinex_decomnet.pth
 
 
 val:

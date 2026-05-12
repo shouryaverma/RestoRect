@@ -1,5 +1,5 @@
 # general settings
-name: LLIE_v1
+name: LLIE_v1_compare
 model_type: S2_Interface_Model
 scale: 1
 num_gpu: auto  # auto: can infer from your visible devices automatically. official: 4 GPUs
@@ -13,8 +13,8 @@ datasets:
     name: Testset
     type: DeblurPairedDataset
     batch_size: 1
-    dataroot_gt: /depot/natallah/data/shourya/Reti-Diff-main/datasets/LOL-v1/eval15/high
-    dataroot_lq: /depot/natallah/data/shourya/Reti-Diff-main/datasets/LOL-v1/eval15/low
+    dataroot_gt: /depot/natallah/data/shourya/RestoRect/datasets/LOL-v1/eval15/high
+    dataroot_lq: /depot/natallah/data/shourya/RestoRect/datasets/LOL-v1/eval15/low
     dataset_type: ~
     io_backend:
       type: disk
@@ -22,7 +22,7 @@ datasets:
 
 # network structures
 network_g:
-  type: RestoRectS2
+  type: RestoRectS2_Interface
   n_encoder_res: 5
   inp_channels: 3
   out_channels: 3
@@ -41,11 +41,11 @@ network_g:
 
 # path
 path:
-  pretrain_network_g: /depot/natallah/data/shourya/Reti-Diff-main/experiments/S2Model_LLIEv1_1_all/models/net_g_140000.pth
+  pretrain_network_g: /depot/natallah/data/shourya/RestoRect/experiments/S2Model_LLIEv1_1_all/models/net_g_140000.pth
   param_key_g: params_ema
   strict_load_g: False
 
-pretrain_decomnet_low: /depot/natallah/data/shourya/Reti-Diff-main/pretrained_models/retinex_decomnet.pth
+pretrain_decomnet_low: /depot/natallah/data/shourya/RestoRect/pretrained_models/retinex_decomnet.pth
 
 
 val:

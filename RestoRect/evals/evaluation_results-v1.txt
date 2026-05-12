@@ -1,0 +1,16 @@
+Image Quality Evaluation Results
+================================================================================
+GT Directory: /depot/natallah/data/shourya/Reti-Diff-main/datasets/LOL-v1/eval15/high
+Predicted Directory: /depot/natallah/data/shourya/Reti-Diff-main/results/LLIE_v1_1/visualization/Testset
+Number of images: 15
+
+PSNR: 27.845626 ± 7.651518
+SSIM: 0.943363 ± 0.056484
+FID:  38.672273
+NIQE: 7.472099 ± 1.341075
+LPIPS: 0.110090 ± 0.029897
+BRISQUE: 27.163676 ± 12.038611
+BIQI: 8.353927 ± 1.578849
+UCIQE: 0.517524 ± 0.058815
+UIQM: 2.597440 ± 0.342806
+CLIP-IQA ↑: 0.498913 ± 0.001835

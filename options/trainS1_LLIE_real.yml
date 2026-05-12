@@ -10,8 +10,8 @@ datasets:
   train:
     name: TrainSet
     type: DeblurPairedDataset
-    dataroot_gt: /depot/natallah/data/shourya/Reti-Diff-main/datasets/LOL-v2/Real_captured/Train/Normal
-    dataroot_lq: /depot/natallah/data/shourya/Reti-Diff-main/datasets/LOL-v2/Real_captured/Train/Low
+    dataroot_gt: /depot/natallah/data/shourya/RestoRect/datasets/LOL-v2/Real_captured/Train/Normal
+    dataroot_lq: /depot/natallah/data/shourya/RestoRect/datasets/LOL-v2/Real_captured/Train/Low
     geometric_augs: true
 
     filename_tmpl: '{}'
@@ -37,8 +37,8 @@ datasets:
     name: ValSet
     type: DeblurPairedDataset
     dataset_type: ~
-    dataroot_gt: /depot/natallah/data/shourya/Reti-Diff-main/datasets/LOL-v2/Real_captured/Test/Normal
-    dataroot_lq: /depot/natallah/data/shourya/Reti-Diff-main/datasets/LOL-v2/Real_captured/Test/Low
+    dataroot_gt: /depot/natallah/data/shourya/RestoRect/datasets/LOL-v2/Real_captured/Test/Normal
+    dataroot_lq: /depot/natallah/data/shourya/RestoRect/datasets/LOL-v2/Real_captured/Test/Low
     io_backend:
       type: disk
 
@@ -56,15 +56,15 @@ network_g:
   bias: False
   LayerNorm_type: SpatialChannel
 
-pretrain_decomnet_high: /depot/natallah/data/shourya/Reti-Diff-main/pretrained_models/init_high.pth
-pretrain_decomnet_low: /depot/natallah/data/shourya/Reti-Diff-main/pretrained_models/init_low.pth
+pretrain_decomnet_high: /depot/natallah/data/shourya/RestoRect/pretrained_models/init_high.pth
+pretrain_decomnet_low: /depot/natallah/data/shourya/RestoRect/pretrained_models/init_low.pth
 
 # path
 path:
-  pretrain_network_g: /depot/natallah/data/shourya/Reti-Diff-main/experiments/RetiDiff_S1Model_LLIE/models/net_g_75000.pth
+  pretrain_network_g: /depot/natallah/data/shourya/RestoRect/experiments/RetiDiff_S1Model_LLIE/models/net_g_75000.pth
   param_key_g: params_ema
   strict_load_g: true
-  resume_state: /depot/natallah/data/shourya/Reti-Diff-main/experiments/RetiDiff_S1Model_LLIE/training_states/75000.state
+  resume_state: /depot/natallah/data/shourya/RestoRect/experiments/RetiDiff_S1Model_LLIE/training_states/75000.state
 
 # training settings
 train:

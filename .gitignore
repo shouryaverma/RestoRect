@@ -9,3 +9,4 @@ bash/*.out
 experiments/
 results/
 pretrained_models/
+bash/

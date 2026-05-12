@@ -1,0 +1,16 @@
+Image Quality Evaluation Results
+================================================================================
+GT Directory: /depot/natallah/data/shourya/Reti-Diff-main/datasets/SSID/Sony/long_resized
+Predicted Directory: /depot/natallah/data/shourya/Reti-Diff-main/results/SSID/visualization/SSID_ValSet_new
+Number of images: 350
+
+PSNR: 26.190244 ± 4.627912
+SSIM: 0.923782 ± 0.051999
+FID:  54.235025
+NIQE: 5.877580 ± 1.798174
+LPIPS: 0.158917 ± 0.082308
+BRISQUE: 20.051121 ± 16.169043
+BIQI: 9.573858 ± 2.622136
+UCIQE: 0.581072 ± 0.045725
+UIQM: 2.389071 ± 0.521518
+CLIP-IQA ↑: 0.496899 ± 0.002074

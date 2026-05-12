@@ -1,0 +1,16 @@
+Image Quality Evaluation Results
+================================================================================
+GT Directory: /depot/natallah/data/shourya/Reti-Diff-main/datasets/IDIR/MEF
+Predicted Directory: /depot/natallah/data/shourya/Reti-Diff-main/results/LLIE_syn_MEF/visualization/Testset
+Number of images: 79
+
+PSNR: 17.196335 ± 4.334116
+SSIM: 0.687154 ± 0.207688
+FID:  74.061774
+NIQE: 6.128768 ± 2.360480
+LPIPS: 0.257520 ± 0.165503
+BRISQUE: 14.695187 ± 9.028012
+BIQI: 11.225422 ± 2.775787
+UCIQE: 0.560593 ± 0.064066
+UIQM: 2.828915 ± 0.740465
+CLIP-IQA ↑: 0.499127 ± 0.002109

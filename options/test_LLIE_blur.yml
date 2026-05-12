@@ -13,8 +13,8 @@ datasets:
     name: Testset
     type: DeblurPairedDataset
     batch_size: 1
-    dataroot_gt: /depot/natallah/data/shourya/Reti-Diff-main/datasets/LOL-blur/test_gt
-    dataroot_lq: /depot/natallah/data/shourya/Reti-Diff-main/datasets/LOL-blur/test_input
+    dataroot_gt: /depot/natallah/data/shourya/RestoRect/datasets/LOL-blur/test_gt
+    dataroot_lq: /depot/natallah/data/shourya/RestoRect/datasets/LOL-blur/test_input
     dataset_type: ~
     io_backend:
       type: disk
@@ -22,7 +22,7 @@ datasets:
 
 # network structures
 network_g:
-  type: RestoRectS2
+  type: RestoRectS2_Interface
   n_encoder_res: 5
   inp_channels: 3
   out_channels: 3
@@ -41,11 +41,11 @@ network_g:
 
 # path
 path:
-  pretrain_network_g: /depot/natallah/data/shourya/Reti-Diff-main/experiments/RestoRect_S2Model_LLIE_blur/models/net_g_150000.pth
+  pretrain_network_g: /depot/natallah/data/shourya/RestoRect/experiments/RestoRect_S2Model_LLIE_blur/models/net_g_150000.pth
   param_key_g: params_ema
   strict_load_g: False
 
-pretrain_decomnet_low: /depot/natallah/data/shourya/Reti-Diff-main/pretrained_models/retinex_decomnet.pth
+pretrain_decomnet_low: /depot/natallah/data/shourya/RestoRect/pretrained_models/retinex_decomnet.pth
 
 
 val:

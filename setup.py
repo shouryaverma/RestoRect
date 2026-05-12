@@ -6,7 +6,7 @@ import os
 import subprocess
 import time
 
-version_file = 'Reti-Diff/version.py'
+version_file = 'RestoRect/version.py'
 
 
 def readme():

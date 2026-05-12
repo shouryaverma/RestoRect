@@ -1,0 +1,16 @@
+Image Quality Evaluation Results
+================================================================================
+GT Directory: /depot/natallah/data/shourya/Reti-Diff-main/datasets/LSUI/gt_test
+Predicted Directory: /depot/natallah/data/shourya/Reti-Diff-main/results/UIE_LSUI/visualization/Testset
+Number of images: 593
+
+PSNR: 28.103117 ± 5.588708
+SSIM: 0.937134 ± 0.043228
+FID:  17.832453
+NIQE: 5.039729 ± 1.157687
+LPIPS: 0.183003 ± 0.097228
+BRISQUE: 21.822291 ± 11.204449
+BIQI: 16.057659 ± 3.622829
+UCIQE: 0.571972 ± 0.053093
+UIQM: 3.226491 ± 0.199723
+CLIP-IQA ↑: 0.499819 ± 0.001636

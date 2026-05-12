@@ -10,8 +10,8 @@ datasets:
   train:
     name: TrainSet
     type: DeblurPairedDataset
-    dataroot_gt: /depot/natallah/data/shourya/Reti-Diff-main/datasets/FiveK/train/target
-    dataroot_lq: /depot/natallah/data/shourya/Reti-Diff-main/datasets/FiveK/train/input
+    dataroot_gt: /depot/natallah/data/shourya/RestoRect/datasets/FiveK/train/target
+    dataroot_lq: /depot/natallah/data/shourya/RestoRect/datasets/FiveK/train/input
     geometric_augs: true
 
     filename_tmpl: '{}'
@@ -37,8 +37,8 @@ datasets:
     name: ValSet
     type: DeblurPairedDataset
     dataset_type: BAID
-    dataroot_gt: /depot/natallah/data/shourya/Reti-Diff-main/datasets/FiveK/test/target
-    dataroot_lq: /depot/natallah/data/shourya/Reti-Diff-main/datasets/FiveK/test/input
+    dataroot_gt: /depot/natallah/data/shourya/RestoRect/datasets/FiveK/test/target
+    dataroot_lq: /depot/natallah/data/shourya/RestoRect/datasets/FiveK/test/input
     io_backend:
       type: disk
 
@@ -56,8 +56,8 @@ network_g:
   bias: False
   LayerNorm_type: SpatialChannel
 
-pretrain_decomnet_low: /depot/natallah/data/shourya/Reti-Diff-main/pretrained_models/init_low.pth
-pretrain_decomnet_high: /depot/natallah/data/shourya/Reti-Diff-main/pretrained_models/init_high.pth
+pretrain_decomnet_low: /depot/natallah/data/shourya/RestoRect/pretrained_models/init_low.pth
+pretrain_decomnet_high: /depot/natallah/data/shourya/RestoRect/pretrained_models/init_high.pth
 
 # path
 path:
